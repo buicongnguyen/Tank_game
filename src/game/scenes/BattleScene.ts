@@ -161,7 +161,7 @@ const ENEMY_TEMPLATES: Record<EnemyTankKind, EnemyTemplate> = {
   convoy: {
     label: 'Convoy Carrier',
     health: 210,
-    speed: 66,
+    speed: 46,
     radius: 32,
     reloadMs: 2100,
     damage: 20,
@@ -195,6 +195,9 @@ const DIFFICULTY_HEALTH = {
   hard: 1.16,
   extreme: 1.34,
 };
+
+const CONVOY_ESCAPE_COUNTDOWN_MS = 8000;
+const CONVOY_WARNING_SECONDS = 12;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -300,6 +303,9 @@ export class BattleScene extends Phaser.Scene {
   private secondaryTimer = 0;
   private specialTimer = 0;
   private repairCharges = 0;
+  private convoyEscapeCountdownMs = 0;
+  private convoyWarningShown = false;
+  private convoyBreachShown = false;
   private lastPointerWorld = { x: 400, y: 300 };
 
   constructor(
@@ -365,6 +371,7 @@ export class BattleScene extends Phaser.Scene {
     this.updatePlayer(player, mission, snapshot.tankStats, dt, delta);
     this.updateEscort(dt);
     this.updateEnemies(player, mission, snapshot.difficulty, dt, delta);
+    this.updateConvoyEscapeState(mission, delta);
     this.updateProjectiles(dt);
     this.updateExplosions(delta);
     this.updateCaptureZones(player, dt);
@@ -392,6 +399,9 @@ export class BattleScene extends Phaser.Scene {
     this.secondaryTimer = 0;
     this.specialTimer = snapshot.tankStats.specialCooldownMs * 0.35;
     this.repairCharges = snapshot.tankStats.repairCharges;
+    this.convoyEscapeCountdownMs = 0;
+    this.convoyWarningShown = false;
+    this.convoyBreachShown = false;
     this.captureZones = (mission.captureZones ?? []).map((zone) => ({ ...zone, progress: 0 }));
     this.covers = mission.covers.map((cover) => {
       const health = coverHealth(cover);
@@ -516,7 +526,11 @@ export class BattleScene extends Phaser.Scene {
       };
     } else {
       const pointer = this.input.activePointer;
-      if (pointer) {
+      const virtualActionHeld = this.gamepad.isDown(1, 'fire')
+        || this.gamepad.isDown(1, 'secondary')
+        || this.gamepad.isDown(1, 'special')
+        || this.gamepad.isDown(1, 'repair');
+      if (pointer && !virtualActionHeld) {
         this.lastPointerWorld = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       }
       player.turretAngle = Math.atan2(this.lastPointerWorld.y - player.y, this.lastPointerWorld.x - player.x);
@@ -566,7 +580,9 @@ export class BattleScene extends Phaser.Scene {
   private wantsFire(): boolean {
     const keys = this.keys;
     const pointer = this.input.activePointer;
-    return Boolean(keys?.fire.isDown || pointer?.leftButtonDown() || this.gamepad.isDown(1, 'fire'));
+    const keyboardFire = Boolean(keys?.fire.isDown || (keys?.fire && Phaser.Input.Keyboard.JustDown(keys.fire)));
+    const virtualFire = this.gamepad.consumeJustPressed(1, 'fire') || this.gamepad.isDown(1, 'fire');
+    return Boolean(keyboardFire || pointer?.leftButtonDown() || virtualFire);
   }
 
   private wantsSecondary(): boolean {
@@ -596,12 +612,10 @@ export class BattleScene extends Phaser.Scene {
       enemy.exposed = enemy.kind === 'boss' && Math.sin(this.missionElapsed / 760) > 0.42;
 
       if (enemy.kind === 'convoy') {
-        enemy.x += enemy.speed * dt;
+        const escapeLine = mission.exitX ? mission.exitX - enemy.radius : mission.worldWidth - enemy.radius;
+        enemy.x = Math.min(escapeLine, enemy.x + enemy.speed * dt);
+        enemy.vx = enemy.x >= escapeLine ? 0 : enemy.speed;
         enemy.bodyAngle = 0;
-        if (mission.exitX && enemy.x >= mission.exitX) {
-          this.failMission('Convoy escaped');
-          return;
-        }
       } else if (enemy.kind !== 'turret') {
         const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y);
         const preferred = enemy.kind === 'boss' ? 430 : 310;
@@ -634,6 +648,48 @@ export class BattleScene extends Phaser.Scene {
           enemy.kind === 'boss' ? 0xff8a5b : 0xffc16d,
         );
       }
+    }
+  }
+
+  private updateConvoyEscapeState(mission: MissionConfig, delta: number): void {
+    if (mission.kind !== 'assault' || !mission.exitX || !this.player || this.missionResolved) {
+      return;
+    }
+
+    const exitX = mission.exitX;
+    const convoys = this.enemies.filter((enemy) => enemy.kind === 'convoy' && enemy.alive);
+    if (convoys.length === 0) {
+      this.convoyEscapeCountdownMs = 0;
+      return;
+    }
+
+    const nearestEscapeSeconds = Math.min(...convoys.map((enemy) => Math.max(0, (exitX - enemy.radius - enemy.x) / Math.max(1, enemy.speed))));
+    if (!this.convoyWarningShown && nearestEscapeSeconds <= CONVOY_WARNING_SECONDS) {
+      this.convoyWarningShown = true;
+      this.addFloatingText(this.player.x, this.player.y - 92, 'Convoy nearing exit!', 0xffd27a);
+      this.audio?.playSfx('artillery', 0.45);
+    }
+
+    const escapedConvoy = convoys.find((enemy) => enemy.x >= exitX - enemy.radius - 1);
+    if (!escapedConvoy) {
+      this.convoyEscapeCountdownMs = 0;
+      this.convoyBreachShown = false;
+      return;
+    }
+
+    if (this.convoyEscapeCountdownMs <= 0) {
+      this.convoyEscapeCountdownMs = CONVOY_ESCAPE_COUNTDOWN_MS;
+    }
+
+    if (!this.convoyBreachShown) {
+      this.convoyBreachShown = true;
+      this.addFloatingText(this.player.x, this.player.y - 108, 'Stop the carrier at the exit!', 0xff845f);
+      this.playSpatialSfx('mission-fail', escapedConvoy.x, escapedConvoy.y, 0.62);
+    }
+
+    this.convoyEscapeCountdownMs -= delta;
+    if (this.convoyEscapeCountdownMs <= 0) {
+      this.failMission('Convoy escaped');
     }
   }
 
@@ -897,7 +953,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.player) {
       this.addFloatingText(this.player.x, this.player.y - 70, reason, 0xff845f);
     }
-    this.time.delayedCall(450, () => this.director.failMission());
+    this.time.delayedCall(900, () => this.director.failMission(reason));
   }
 
   private fireProjectile(source: TankRuntime, team: Team, damage: number, shellSpeed: number, blastRadius: number, color: number, ignoreReload = false): void {
@@ -924,7 +980,7 @@ export class BattleScene extends Phaser.Scene {
       vy: Math.sin(source.turretAngle) * shellSpeed,
       damage,
       blastRadius,
-      radius: team === 'player' ? 7 : 6,
+      radius: team === 'player' ? 10 : 8,
       ttl: 1800,
       color,
     });
@@ -1157,8 +1213,18 @@ export class BattleScene extends Phaser.Scene {
 
   private getProgressText(mission: MissionConfig): string {
     if (mission.kind === 'assault') {
-      const convoyAlive = this.enemies.filter((enemy) => enemy.kind === 'convoy' && enemy.alive).length;
-      return convoyAlive > 0 ? `Stop convoy: ${convoyAlive} carriers` : 'Destroy remaining armor';
+      const convoys = this.enemies.filter((enemy) => enemy.kind === 'convoy' && enemy.alive);
+      if (this.convoyEscapeCountdownMs > 0) {
+        return `Convoy escaping in ${Math.ceil(this.convoyEscapeCountdownMs / 1000)}s`;
+      }
+
+      if (convoys.length > 0 && mission.exitX) {
+        const exitX = mission.exitX;
+        const nearestEscapeSeconds = Math.min(...convoys.map((enemy) => Math.max(0, (exitX - enemy.radius - enemy.x) / Math.max(1, enemy.speed))));
+        return `Stop convoy: ${convoys.length} carriers - ${Math.ceil(nearestEscapeSeconds)}s to exit`;
+      }
+
+      return 'Destroy remaining armor';
     }
 
     if (mission.kind === 'defense') {
@@ -1195,8 +1261,8 @@ export class BattleScene extends Phaser.Scene {
     this.drawCaptureZones(graphics);
     this.drawEscort(graphics);
     this.drawCovers(graphics);
-    this.drawProjectiles(graphics);
     this.drawTanks(graphics);
+    this.drawProjectiles(graphics);
     this.drawExplosions(graphics);
   }
 
@@ -1213,6 +1279,14 @@ export class BattleScene extends Phaser.Scene {
     if (mission.palette.water) {
       graphics.fillStyle(mission.palette.water, 0.58);
       graphics.fillRect(0, mission.worldHeight * 0.72, mission.worldWidth, 90);
+    }
+
+    if (mission.kind === 'assault' && mission.exitX) {
+      graphics.fillStyle(0xff6b4a, this.convoyEscapeCountdownMs > 0 ? 0.34 : 0.18);
+      graphics.fillRect(mission.exitX - 18, 0, 36, mission.worldHeight);
+      graphics.lineStyle(4, 0xffd27a, this.convoyEscapeCountdownMs > 0 ? 0.95 : 0.58);
+      graphics.lineBetween(mission.exitX - 18, 0, mission.exitX - 18, mission.worldHeight);
+      graphics.lineBetween(mission.exitX + 18, 0, mission.exitX + 18, mission.worldHeight);
     }
   }
 
@@ -1275,10 +1349,24 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
-      graphics.lineStyle(3, projectile.color, 0.5);
-      graphics.lineBetween(projectile.previousX, projectile.previousY, projectile.x, projectile.y);
+      const speed = Math.max(1, Math.hypot(projectile.vx, projectile.vy));
+      const ux = projectile.vx / speed;
+      const uy = projectile.vy / speed;
+      const trailLength = projectile.team === 'player' ? 86 : 56;
+      const tailX = projectile.x - ux * trailLength;
+      const tailY = projectile.y - uy * trailLength;
+      const shellRadius = projectile.team === 'player' ? projectile.radius + 4 : projectile.radius + 2;
+
+      graphics.lineStyle(projectile.team === 'player' ? 12 : 8, projectile.color, 0.18);
+      graphics.lineBetween(tailX, tailY, projectile.x, projectile.y);
+      graphics.lineStyle(projectile.team === 'player' ? 6 : 4, projectile.color, 0.82);
+      graphics.lineBetween(tailX + ux * trailLength * 0.28, tailY + uy * trailLength * 0.28, projectile.x, projectile.y);
+      graphics.fillStyle(0xffffff, 0.78);
+      graphics.fillCircle(projectile.x, projectile.y, Math.max(3, shellRadius * 0.42));
+      graphics.lineStyle(2, 0x140f08, 0.62);
+      graphics.strokeCircle(projectile.x, projectile.y, shellRadius);
       graphics.fillStyle(projectile.color, 1);
-      graphics.fillCircle(projectile.x, projectile.y, projectile.radius);
+      graphics.fillCircle(projectile.x, projectile.y, shellRadius);
     }
   }
 

@@ -138,6 +138,7 @@ export interface SessionSnapshot {
   currentMissionIndex: number;
   totalScore: number;
   scrap: number;
+  failureReason?: string;
   runSerial: number;
   completedMissions: number;
   currentMission: MissionConfig;

@@ -292,13 +292,14 @@ export class InterfaceController {
     }
 
     if (snapshot.phase === 'gameover') {
+      const failureReason = snapshot.failureReason ?? 'Mission failed';
       return `
         <section class="overlay-card tank-overlay-card">
-          <span class="overlay-kicker danger">Tank Destroyed</span>
+          <span class="overlay-kicker danger">${failureReason}</span>
           <h1>Mission Failed</h1>
           <p>
             You reached ${mission.codename} with a score of
-            <strong>${snapshot.totalScore.toLocaleString()}</strong>. Face threats with your front armor and save artillery for clustered armor.
+            <strong>${snapshot.totalScore.toLocaleString()}</strong>. ${this.getFailureAdvice(failureReason)}
           </p>
           ${this.renderDifficultySelector()}
           <div class="overlay-actions">
@@ -322,5 +323,17 @@ export class InterfaceController {
         </div>
       </section>
     `;
+  }
+
+  private getFailureAdvice(reason: string): string {
+    if (reason.toLowerCase().includes('convoy')) {
+      return 'Convoy carriers must be stopped before the escape warning expires. Chase the beige carriers first and use rockets or artillery when they are near the exit road.';
+    }
+
+    if (reason.toLowerCase().includes('escort')) {
+      return 'Stay close enough to keep the truck moving, but block incoming fire with your hull and clear ambush tanks early.';
+    }
+
+    return 'Face threats with your front armor, use cover between reloads, and save artillery for clustered armor.';
   }
 }

@@ -94,6 +94,7 @@ export class GameDirector {
   private scrap = 0;
   private runSerial = 0;
   private completedMissions = 0;
+  private failureReason: string | undefined;
   private tankStats = cloneStats(BASE_STATS);
   private pendingUpgrades: UpgradeOption[] = this.getUpgradeOptions(0);
 
@@ -122,6 +123,7 @@ export class GameDirector {
       currentMissionIndex: this.currentMissionIndex,
       totalScore: this.totalScore,
       scrap: this.scrap,
+      failureReason: this.failureReason,
       runSerial: this.runSerial,
       completedMissions: this.completedMissions,
       currentMission,
@@ -138,6 +140,7 @@ export class GameDirector {
     this.currentMissionIndex = 0;
     this.totalScore = 0;
     this.scrap = 0;
+    this.failureReason = undefined;
     this.completedMissions = 0;
     this.tankStats = applyDifficulty(BASE_STATS, difficulty);
     this.pendingUpgrades = this.getUpgradeOptions(0);
@@ -158,6 +161,7 @@ export class GameDirector {
 
     this.currentMissionIndex += 1;
     this.phase = 'playing';
+    this.failureReason = undefined;
     this.pendingUpgrades = this.getUpgradeOptions(this.currentMissionIndex);
     this.runSerial += 1;
     this.emit();
@@ -172,6 +176,7 @@ export class GameDirector {
   }
 
   completeCurrentMission(reward: { score: number; scrap: number }): void {
+    this.failureReason = undefined;
     this.addScore(reward.score);
     this.scrap += Math.max(0, Math.round(reward.scrap));
     this.completedMissions = Math.min(this.completedMissions + 1, this.missions.length);
@@ -213,7 +218,8 @@ export class GameDirector {
     this.advanceToNextMission();
   }
 
-  failMission(): void {
+  failMission(reason = 'Mission failed'): void {
+    this.failureReason = reason;
     this.phase = 'gameover';
     this.emit();
   }
