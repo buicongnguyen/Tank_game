@@ -1,9 +1,9 @@
 export type SessionPhase = 'menu' | 'playing' | 'intermission' | 'gameover' | 'victory';
-export type EnemyKind = 'rifleman' | 'rocketeer' | 'turret' | 'zombie' | 'scout' | 'bikeRaider' | 'jeepRaider' | 'tankRaider';
-export type BossKind = 'gunship' | 'barge' | 'tank';
-export type StageThemeId = 'emerald' | 'river' | 'blacksite';
-export type WeaponKind = 'rifle' | 'shotgun' | 'flame' | 'launcher' | 'sniper' | 'explosiveArrow' | 'missile' | 'laser' | 'machineGun' | 'throwBomb' | 'poisonBomb';
 export type DifficultyMode = 'easy' | 'normal' | 'hard' | 'extreme';
+export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
+export type EnemyTankKind = 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
+export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair';
+export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
 
 export interface StagePalette {
   sky: number;
@@ -14,108 +14,135 @@ export interface StagePalette {
   water?: number;
 }
 
-export interface ObstacleConfig {
+export interface CoverConfig {
+  id: string;
+  kind: CoverKind;
   x: number;
   y: number;
   width: number;
   height: number;
-  tint?: number;
-  alpha?: number;
+  health?: number;
 }
 
 export interface EnemySpawn {
   id: string;
-  kind: EnemyKind;
+  kind: EnemyTankKind;
   x: number;
   y: number;
+  patrol?: Array<{ x: number; y: number }>;
 }
 
-export interface EncounterConfig {
+export interface CaptureZoneConfig {
   id: string;
   label: string;
-  triggerX: number;
-  enemies: EnemySpawn[];
+  x: number;
+  y: number;
+  radius: number;
+}
+
+export interface EscortConfig {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  exitX: number;
+  health: number;
 }
 
 export interface BossConfig {
-  kind: BossKind;
+  id: string;
+  kind: 'boss';
   name: string;
   x: number;
   y: number;
   health: number;
-  speed: number;
   fireRate: number;
-  bulletSpeed: number;
-  summonEveryMs?: number;
 }
 
-export interface StageConfig {
+export interface MissionConfig {
   id: string;
   name: string;
   codename: string;
-  theme: StageThemeId;
+  kind: MissionKind;
   objective: string;
   briefing: string;
   worldWidth: number;
   worldHeight: number;
-  bossTriggerX: number;
+  durationMs?: number;
+  exitX?: number;
   palette: StagePalette;
-  obstacles: ObstacleConfig[];
-  encounters: EncounterConfig[];
-  boss: BossConfig;
-  bosses?: BossConfig[];
+  covers: CoverConfig[];
+  enemies: EnemySpawn[];
+  captureZones?: CaptureZoneConfig[];
+  escort?: EscortConfig;
+  boss?: BossConfig;
 }
 
-export interface PlayerStatus {
-  id: 1 | 2;
+export interface TankStats {
+  maxHealth: number;
+  armor: number;
+  engine: number;
+  turnRate: number;
+  reloadMs: number;
+  shellDamage: number;
+  shellSpeed: number;
+  secondaryCooldownMs: number;
+  specialCooldownMs: number;
+  repairCharges: number;
+}
+
+export interface UpgradeOption {
+  id: UpgradeId;
   label: string;
+  description: string;
+}
+
+export interface TankHudStatus {
   health: number;
   maxHealth: number;
-  bombs: number;
-  bombCooldownMs?: number;
-  alive: boolean;
-  accent: string;
-  weapon?: string;
-  weapons?: string[];
-  ammo?: Array<{
-    label: string;
-    ammo: string;
-    active: boolean;
-  }>;
+  armor: number;
+  speed: number;
+  reloadPercent: number;
+  secondaryPercent: number;
+  specialPercent: number;
+  repairCharges: number;
 }
 
 export interface BossStatus {
   name: string;
   health: number;
   maxHealth: number;
+  exposed: boolean;
 }
 
 export interface HudSnapshot {
   phase: 'standby' | 'live' | 'paused';
-  stageName: string;
-  stageIndex: number;
-  totalStages: number;
+  missionName: string;
+  missionIndex: number;
+  totalMissions: number;
   objective: string;
-  encounterLabel: string;
   progressText: string;
   enemyCount: {
     alive: number;
     total: number;
   };
   totalScore: number;
-  players: PlayerStatus[];
+  scrap: number;
+  tank: TankHudStatus;
   boss?: BossStatus;
 }
 
 export interface SessionSnapshot {
   phase: SessionPhase;
-  playerCount: 1 | 2;
   difficulty: DifficultyMode;
-  currentStageIndex: number;
+  currentMissionIndex: number;
   totalScore: number;
+  scrap: number;
   runSerial: number;
-  completedStages: number;
-  currentStage: StageConfig;
-  nextStage?: StageConfig;
-  stages: StageConfig[];
+  completedMissions: number;
+  currentMission: MissionConfig;
+  nextMission?: MissionConfig;
+  missions: MissionConfig[];
+  tankStats: TankStats;
+  pendingUpgrades: UpgradeOption[];
 }

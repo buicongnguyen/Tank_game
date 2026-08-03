@@ -2,7 +2,7 @@
 
 A new mobile-first tank-combat game forked from the Operation Iron Vengeance Phaser/Vite/Capacitor baseline.
 
-This repository is intentionally separate from `rambo_game` so the original commando game can stay available as a reference. The first milestone is planning and deployment setup; the current gameplay code is still the copied baseline until the tank systems are implemented.
+This repository is intentionally separate from `rambo_game` so the original commando game can stay available as a reference. The runtime has been converted into a tank-combat campaign while preserving the web, Android, GitHub Pages, and APK release pipeline.
 
 ## Current Baseline Evaluation
 
@@ -13,14 +13,13 @@ What already works well:
 - Touch controls, safe-area CSS, and Capacitor Android packaging are already in place.
 - GitHub Pages and Android APK workflows can deploy the web build and phone build from the same source.
 
-What should improve for the tank game:
+What changed for the tank game:
 
-- The current combat is mostly auto-targeted shooting; tanks will feel better with more deliberate aiming, projectile travel, reload timing, and positioning.
-- Encounters need more objective variety than clearing waves: capture, escort, defend, ambush, survive, and boss-break phases.
-- The battlefield should matter: destructible walls, cover, mines, bridges, mud, repair zones, and explosive barrels.
-- The mobile controls should be simpler and more tactile: left stick to drive, right side for turret aim/fire/special, clear cooldown feedback.
-- Add stronger feedback: recoil, hit sparks, shell trails, camera shake, armor clangs, engine rumble, and bigger boss tells.
-- Add progression between short missions so players feel they are building a better tank, not only replaying stages.
+- Combat now uses deliberate turret aiming, projectile travel, reload timing, recoil, explosions, and armor-facing damage.
+- The campaign includes assault, defense, escort, capture, and boss missions.
+- The battlefield includes destructible crates, concrete blocks, fuel barrels, mines, and repair pads.
+- Mobile controls use a left drive stick, a right aim stick, and action buttons for cannon, rocket, artillery, and repair.
+- Between missions, players choose upgrades for armor, engine, reload, shells, special cooldown, or repair capacity.
 
 ## Tank Game Plan
 

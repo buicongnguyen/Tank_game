@@ -82,6 +82,8 @@ The HUD should prioritize health, reload, special charge, objective, and upgrade
 - Rename app metadata, package id, docs, and deployment artifact names.
 - Keep the copied game code as a reference baseline.
 
+Status: implemented. The old repository remains untouched, and this fork has its own git history, Android package id, GitHub Pages workflow, and APK workflow.
+
 ### Phase 2: Tank Movement Prototype
 
 - Replace player infantry movement with tank body movement.
@@ -89,17 +91,23 @@ The HUD should prioritize health, reload, special charge, objective, and upgrade
 - Add cannon fire with reload and recoil.
 - Keep one test arena and a few stationary targets.
 
+Status: implemented. The player tank now drives with weighted acceleration, aims the turret independently, and fires visible cannon shells with recoil.
+
 ### Phase 3: Combat Systems
 
 - Add projectile travel, explosions, hit reactions, armor facings, and cover collision.
 - Add enemy tanks with simple pursuit, strafing, retreat, and firing behavior.
 - Add destructible battlefield props.
 
+Status: implemented. Shells travel, explode, damage cover, trigger fuel barrels and mines, and apply front/side/rear armor multipliers. Enemy tanks and turrets pursue, strafe, retreat, and fire.
+
 ### Phase 4: Mission Structure
 
 - Convert the current stage data into tank mission definitions.
 - Add objective types: assault, defense, escort, capture, boss.
 - Add mission start/clear/fail screens tailored to the tank theme.
+
+Status: implemented. The campaign contains five missions: convoy assault, relay defense, truck escort, beacon capture, and a boss fight with weak-point exposure.
 
 ### Phase 5: Upgrades And Replay
 
@@ -108,12 +116,16 @@ The HUD should prioritize health, reload, special charge, objective, and upgrade
 - Add a simple garage screen showing tank stats.
 - Add difficulty tuning for short Android sessions.
 
+Status: implemented. Mission clears award score and scrap, intermission offers three upgrades, and the HUD/menu show tank health, armor, speed, cooldowns, and difficulty effects.
+
 ### Phase 6: Polish And Release
 
 - Replace inherited commando sprites with tank sprites and battlefield props.
 - Add sound effects for engine, cannon, shell impact, explosion, reload, and upgrade pickup.
 - Add phone QA pass: portrait/landscape, safe areas, app resume, audio, frame rate, install flow.
 - Publish web version through GitHub Pages and debug APK through GitHub Releases.
+
+Status: partially implemented. The runtime now uses procedural tank, shell, cover, explosion, zone, and escort visuals, and inherited sprite assets were removed from the shipped public asset tree. WebAudio battle music remains. On August 3, 2026, `npm run build`, `npx cap sync android`, `npm audit`, and Android `assembleDebug` all passed locally, producing `android/app/build/outputs/apk/debug/app-debug.apk`. GitHub push and hosted deployment are still blocked until the empty `buicongnguyen/Tank_game` repository exists or GitHub CLI auth is repaired.
 
 ## First Playable Milestone
 

@@ -2,74 +2,88 @@ import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad, type GameAction } from '../core/VirtualGamepad';
 import type { HudSnapshot, SessionPhase } from '../types';
 
-type TouchButtonAction = Extract<GameAction, 'crouch' | 'jump' | 'fire' | 'special'>;
+type TouchButtonAction = Extract<GameAction, 'fire' | 'secondary' | 'special' | 'repair'>;
 
 function isTouchButtonAction(value: string | undefined): value is TouchButtonAction {
-  return value === 'crouch' || value === 'jump' || value === 'fire' || value === 'special';
+  return value === 'fire' || value === 'secondary' || value === 'special' || value === 'repair';
 }
 
 export class TouchControlsOverlay {
   private readonly root: HTMLElement;
   private readonly gamepad: VirtualGamepad;
-  private readonly stickZone: HTMLElement;
-  private readonly stickKnob: HTMLElement;
+  private readonly driveZone: HTMLElement;
+  private readonly driveKnob: HTMLElement;
+  private readonly aimZone: HTMLElement;
+  private readonly aimKnob: HTMLElement;
   private readonly specialButton: HTMLButtonElement | null;
-  private readonly specialDetail: HTMLElement | null;
+  private readonly repairButton: HTMLButtonElement | null;
   private readonly buttonResetters: Array<() => void> = [];
   private readonly touchQuery = window.matchMedia('(hover: none), (pointer: coarse)');
-  private stickPointerId: number | null = null;
   private currentPhase: SessionPhase = 'menu';
 
   constructor(root: HTMLElement, director: GameDirector, gamepad: VirtualGamepad) {
     this.root = root;
     this.gamepad = gamepad;
     this.root.innerHTML = `
-      <div class="touch-controls">
+      <div class="touch-controls tank-touch-controls">
         <div class="touch-cluster touch-cluster-left">
-          <div class="touch-stick-shell" data-stick-zone data-engaged="false">
+          <div class="touch-stick-shell tank-drive-stick" data-drive-zone data-engaged="false">
             <div class="touch-stick-ring"></div>
-            <div class="touch-stick-knob" data-stick-knob></div>
-            <span class="touch-stick-keys">WASD / ARROWS</span>
-            <span class="touch-stick-label">Move</span>
+            <div class="touch-stick-knob" data-drive-knob></div>
+            <span class="touch-stick-keys">WASD</span>
+            <span class="touch-stick-label">Drive</span>
+          </div>
+        </div>
+        <div class="touch-cluster tank-aim-cluster">
+          <div class="touch-stick-shell tank-aim-stick" data-aim-zone data-engaged="false">
+            <div class="touch-stick-ring"></div>
+            <div class="touch-stick-knob" data-aim-knob></div>
+            <span class="touch-stick-keys">Mouse</span>
+            <span class="touch-stick-label">Aim</span>
           </div>
         </div>
         <div class="touch-cluster touch-cluster-right">
-          <div class="touch-action-grid">
-            <button type="button" class="touch-button" data-action="jump">
-              <strong>Jump Roll</strong>
-              <span class="key-hint">Key U</span>
-            </button>
+          <div class="touch-action-grid tank-action-grid">
             <button type="button" class="touch-button touch-button-fire" data-action="fire">
               <strong>Fire</strong>
-              <span class="key-hint">Key I / Space</span>
+              <span class="key-hint">Space</span>
             </button>
-            <button type="button" class="touch-button" data-action="crouch">
-              <strong>Gun</strong>
-              <span class="key-hint">Key J</span>
+            <button type="button" class="touch-button" data-action="secondary">
+              <strong>Rocket</strong>
+              <span class="key-hint">E</span>
             </button>
             <button type="button" class="touch-button touch-button-special" data-action="special">
-              <strong>Bomb</strong>
-              <span class="key-hint">Key K</span>
+              <strong>Strike</strong>
+              <span class="key-hint">Q</span>
               <span class="action-detail" data-special-detail></span>
+            </button>
+            <button type="button" class="touch-button" data-action="repair">
+              <strong>Repair</strong>
+              <span class="key-hint">R</span>
+              <span class="action-detail" data-repair-detail></span>
             </button>
           </div>
         </div>
-        <div class="touch-rotate-hint">Portrait and landscape are supported.</div>
       </div>
     `;
 
-    const stickZone = this.root.querySelector<HTMLElement>('[data-stick-zone]');
-    const stickKnob = this.root.querySelector<HTMLElement>('[data-stick-knob]');
-    if (!stickZone || !stickKnob) {
-      throw new Error('Touch controls failed to initialize.');
+    const driveZone = this.root.querySelector<HTMLElement>('[data-drive-zone]');
+    const driveKnob = this.root.querySelector<HTMLElement>('[data-drive-knob]');
+    const aimZone = this.root.querySelector<HTMLElement>('[data-aim-zone]');
+    const aimKnob = this.root.querySelector<HTMLElement>('[data-aim-knob]');
+    if (!driveZone || !driveKnob || !aimZone || !aimKnob) {
+      throw new Error('Tank touch controls failed to initialize.');
     }
 
-    this.stickZone = stickZone;
-    this.stickKnob = stickKnob;
+    this.driveZone = driveZone;
+    this.driveKnob = driveKnob;
+    this.aimZone = aimZone;
+    this.aimKnob = aimKnob;
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
-    this.specialDetail = this.root.querySelector<HTMLElement>('[data-special-detail]');
+    this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
 
-    this.bindStick();
+    this.bindStick(this.driveZone, this.driveKnob, 'drive');
+    this.bindStick(this.aimZone, this.aimKnob, 'aim');
     this.bindButtons();
     window.addEventListener('resize', this.syncVisibility);
     this.syncVisibility();
@@ -81,16 +95,19 @@ export class TouchControlsOverlay {
   }
 
   setHud(snapshot: HudSnapshot): void {
-    const player = snapshot.players[0];
-    if (!this.specialButton || !this.specialDetail || !player) {
-      return;
+    const specialDetail = this.specialButton?.querySelector<HTMLElement>('[data-special-detail]');
+    const repairDetail = this.repairButton?.querySelector<HTMLElement>('[data-repair-detail]');
+
+    if (this.specialButton && specialDetail) {
+      const ready = snapshot.tank.specialPercent >= 1;
+      specialDetail.textContent = ready ? 'Ready' : `${Math.round(snapshot.tank.specialPercent * 100)}%`;
+      this.specialButton.dataset.cooldown = ready ? 'false' : 'true';
     }
 
-    const cooldownSeconds = Math.ceil((player.bombCooldownMs ?? 0) / 1000);
-    this.specialDetail.textContent = cooldownSeconds > 0
-      ? `CD ${cooldownSeconds}`
-      : `x${player.bombs}`;
-    this.specialButton.dataset.cooldown = cooldownSeconds > 0 ? 'true' : 'false';
+    if (this.repairButton && repairDetail) {
+      repairDetail.textContent = `x${snapshot.tank.repairCharges}`;
+      this.repairButton.dataset.cooldown = snapshot.tank.repairCharges > 0 ? 'false' : 'true';
+    }
   }
 
   private readonly syncVisibility = (): void => {
@@ -111,51 +128,80 @@ export class TouchControlsOverlay {
     }
   }
 
-  private bindStick(): void {
-    this.stickZone.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      this.stickPointerId = event.pointerId;
-      this.stickZone.dataset.engaged = 'true';
-      this.stickZone.setPointerCapture(event.pointerId);
-      this.updateStick(event);
-    });
-
-    this.stickZone.addEventListener('pointermove', (event) => {
-      if (event.pointerId !== this.stickPointerId) {
-        return;
-      }
-
-      event.preventDefault();
-      this.updateStick(event);
-    });
+  private bindStick(zone: HTMLElement, knob: HTMLElement, mode: 'drive' | 'aim'): void {
+    let pointerId: number | null = null;
 
     const releaseStick = (event?: PointerEvent): void => {
-      if (event && event.pointerId !== this.stickPointerId) {
+      if (event && event.pointerId !== pointerId) {
         return;
       }
 
       if (event) {
         event.preventDefault();
-        if (this.stickPointerId !== null && this.stickZone.hasPointerCapture(this.stickPointerId)) {
-          this.stickZone.releasePointerCapture(this.stickPointerId);
+        if (pointerId !== null && zone.hasPointerCapture(pointerId)) {
+          zone.releasePointerCapture(pointerId);
         }
       }
 
-      this.stickPointerId = null;
-      this.stickZone.dataset.engaged = 'false';
-      this.stickKnob.style.setProperty('--stick-x', '0px');
-      this.stickKnob.style.setProperty('--stick-y', '0px');
-      this.gamepad.clearAxis(1);
+      pointerId = null;
+      if (mode === 'drive') {
+        this.gamepad.setDriveAxis(0, 0);
+      } else {
+        this.gamepad.clearAimAxis();
+      }
+
+      zone.dataset.engaged = 'false';
+      knob.style.setProperty('--stick-x', '0px');
+      knob.style.setProperty('--stick-y', '0px');
     };
 
-    this.stickZone.addEventListener('pointerup', releaseStick);
-    this.stickZone.addEventListener('pointercancel', releaseStick);
-    this.stickZone.addEventListener('lostpointercapture', () => {
-      if (this.stickPointerId !== null) {
+    const updateStick = (event: PointerEvent): void => {
+      const rect = zone.getBoundingClientRect();
+      const centerX = rect.left + rect.width * 0.5;
+      const centerY = rect.top + rect.height * 0.5;
+      const maxRadius = Math.min(rect.width, rect.height) * 0.32;
+      const rawX = event.clientX - centerX;
+      const rawY = event.clientY - centerY;
+      const distance = Math.hypot(rawX, rawY);
+      const scale = distance > maxRadius && distance > 0 ? maxRadius / distance : 1;
+      const knobX = rawX * scale;
+      const knobY = rawY * scale;
+
+      knob.style.setProperty('--stick-x', `${knobX}px`);
+      knob.style.setProperty('--stick-y', `${knobY}px`);
+
+      if (mode === 'drive') {
+        this.gamepad.setDriveAxis(knobX / maxRadius, knobY / maxRadius);
+      } else {
+        this.gamepad.setAimAxis(knobX / maxRadius, knobY / maxRadius);
+      }
+    };
+
+    zone.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      pointerId = event.pointerId;
+      zone.dataset.engaged = 'true';
+      zone.setPointerCapture(event.pointerId);
+      updateStick(event);
+    });
+
+    zone.addEventListener('pointermove', (event) => {
+      if (event.pointerId !== pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+      updateStick(event);
+    });
+
+    zone.addEventListener('pointerup', releaseStick);
+    zone.addEventListener('pointercancel', releaseStick);
+    zone.addEventListener('lostpointercapture', () => {
+      if (pointerId !== null) {
         releaseStick();
       }
     });
-    this.stickZone.addEventListener('contextmenu', (event) => event.preventDefault());
+    zone.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
   private bindButtons(): void {
@@ -214,31 +260,16 @@ export class TouchControlsOverlay {
     };
   }
 
-  private updateStick(event: PointerEvent): void {
-    const rect = this.stickZone.getBoundingClientRect();
-    const centerX = rect.left + rect.width * 0.5;
-    const centerY = rect.top + rect.height * 0.5;
-    const maxRadius = Math.min(rect.width, rect.height) * 0.32;
-    const rawX = event.clientX - centerX;
-    const rawY = event.clientY - centerY;
-    const distance = Math.hypot(rawX, rawY);
-    const scale = distance > maxRadius && distance > 0 ? maxRadius / distance : 1;
-    const knobX = rawX * scale;
-    const knobY = rawY * scale;
-
-    this.stickKnob.style.setProperty('--stick-x', `${knobX}px`);
-    this.stickKnob.style.setProperty('--stick-y', `${knobY}px`);
-    this.gamepad.setAxis(1, knobX / maxRadius, knobY / maxRadius);
-  }
-
   private resetInputs(): void {
-    this.stickPointerId = null;
-    this.stickZone.dataset.engaged = 'false';
-    this.stickKnob.style.setProperty('--stick-x', '0px');
-    this.stickKnob.style.setProperty('--stick-y', '0px');
+    this.driveZone.dataset.engaged = 'false';
+    this.aimZone.dataset.engaged = 'false';
+    this.driveKnob.style.setProperty('--stick-x', '0px');
+    this.driveKnob.style.setProperty('--stick-y', '0px');
+    this.aimKnob.style.setProperty('--stick-x', '0px');
+    this.aimKnob.style.setProperty('--stick-y', '0px');
     for (const reset of this.buttonResetters) {
       reset();
     }
-    this.gamepad.resetPlayer(1);
+    this.gamepad.resetAll();
   }
 }

@@ -1392,3 +1392,173 @@ a {
     right: 10px;
   }
 }
+
+.tank-stat-grid,
+.cooldown-strip {
+  display: grid;
+  gap: 5px;
+}
+
+.tank-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cooldown-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 8px;
+  border: 1px solid rgba(255, 242, 196, 0.18);
+  background: rgba(6, 12, 8, 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.cooldown-strip span {
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 242, 196, 0.12);
+  color: var(--paper);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cooldown-strip span::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--fill, 100%);
+  background: linear-gradient(90deg, rgba(162, 219, 124, 0.32), rgba(239, 182, 72, 0.25));
+  z-index: -1;
+}
+
+.upgrade-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.upgrade-card {
+  min-height: 112px;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid rgba(255, 242, 196, 0.22);
+  background: linear-gradient(180deg, rgba(239, 182, 72, 0.12), rgba(255, 255, 255, 0.035));
+  color: var(--paper);
+  cursor: pointer;
+  text-align: left;
+}
+
+.upgrade-card:hover,
+.upgrade-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(239, 182, 72, 0.72);
+  outline: none;
+}
+
+.upgrade-card strong {
+  font-family: var(--font-title);
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.upgrade-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.tank-aim-cluster {
+  right: calc(156px + env(safe-area-inset-right, 0px));
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+}
+
+.tank-aim-stick {
+  width: 126px;
+  height: 126px;
+}
+
+.tank-aim-stick .touch-stick-knob {
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent 38%),
+    linear-gradient(180deg, rgba(126, 215, 221, 0.9), rgba(28, 93, 106, 0.9));
+}
+
+.tank-action-grid {
+  grid-template-columns: repeat(2, minmax(0, 72px));
+}
+
+.tank-overlay-card {
+  width: min(700px, 100%);
+}
+
+@media (max-width: 900px) {
+  .tank-hud-left,
+  .tank-hud-right {
+    width: min(48vw, 240px);
+  }
+
+  .tank-stat-grid {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    font-size: 0.56rem;
+  }
+
+  .cooldown-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .cooldown-strip span {
+    min-height: 22px;
+    font-size: 0.48rem;
+  }
+
+  .tank-aim-cluster {
+    right: max(74px, calc(78px + env(safe-area-inset-right, 0px)));
+    bottom: max(48px, calc(24px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  .tank-aim-stick {
+    width: 84px;
+    height: 84px;
+  }
+
+  .tank-aim-stick .touch-stick-knob {
+    width: 38px;
+    height: 38px;
+  }
+
+  .upgrade-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upgrade-card {
+    min-height: 82px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  .tank-aim-cluster {
+    right: max(58px, calc(62px + env(safe-area-inset-right, 0px)));
+  }
+
+  .tank-aim-stick {
+    width: 70px;
+    height: 70px;
+  }
+
+  .tank-aim-stick .touch-stick-label {
+    display: none;
+  }
+}
