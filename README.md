@@ -20,6 +20,7 @@ What changed for the tank game:
 - The battlefield includes destructible crates, concrete blocks, fuel barrels, mines, and repair pads.
 - Mobile controls use a left drive stick, a right aim stick, and action buttons for cannon, rocket, artillery, and repair.
 - Between missions, players choose upgrades for armor, engine, reload, shells, special cooldown, or repair capacity.
+- Procedural WebAudio adds engine hum, cannon fire, rockets, impacts, explosions, repairs, upgrades, and mission result cues without shipping audio files.
 
 ## Tank Game Plan
 

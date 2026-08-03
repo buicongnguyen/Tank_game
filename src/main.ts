@@ -51,7 +51,10 @@ let touchControls: TouchControlsOverlay | undefined;
 const ui = new InterfaceController(
   { hudRoot, overlayRoot, intelRoot },
   director,
-  { startMusic: () => battleMusic.start() },
+  {
+    startMusic: () => battleMusic.start(),
+    playSfx: (cue, intensity) => battleMusic.playSfx(cue, intensity),
+  },
 );
 touchControls = new TouchControlsOverlay(touchControlsRoot, director, virtualGamepad);
 
@@ -81,6 +84,6 @@ new Phaser.Game({
   scene: [new BattleScene(director, (snapshot) => {
     ui.setHud(snapshot);
     touchControls?.setHud(snapshot);
-  }, virtualGamepad)],
+  }, virtualGamepad, battleMusic)],
 });
 

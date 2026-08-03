@@ -1,4 +1,5 @@
 import { GameDirector } from '../core/GameDirector';
+import type { TankSfxCue } from '../audio/BattleMusic';
 import type { DifficultyMode, HudSnapshot, SessionSnapshot, UpgradeId } from '../types';
 
 interface InterfaceRoots {
@@ -9,6 +10,7 @@ interface InterfaceRoots {
 
 interface InterfaceOptions {
   startMusic?: () => void;
+  playSfx?: (cue: TankSfxCue, intensity?: number) => void;
 }
 
 export class InterfaceController {
@@ -17,6 +19,7 @@ export class InterfaceController {
   private readonly intelRoot: HTMLElement;
   private readonly director: GameDirector;
   private readonly startMusic?: () => void;
+  private readonly playSfx?: (cue: TankSfxCue, intensity?: number) => void;
   private hudSnapshot: HudSnapshot | null = null;
   private sessionSnapshot: SessionSnapshot;
   private lastHudSignature = '';
@@ -28,6 +31,7 @@ export class InterfaceController {
     this.intelRoot = roots.intelRoot;
     this.director = director;
     this.startMusic = options.startMusic;
+    this.playSfx = options.playSfx;
     this.sessionSnapshot = director.getSnapshot();
 
     this.director.subscribe((snapshot) => {
@@ -146,6 +150,7 @@ export class InterfaceController {
     for (const button of startButtons) {
       button.addEventListener('click', () => {
         this.startMusic?.();
+        this.playSfx?.('deploy', 0.9);
         this.director.startCampaign(1, this.selectedDifficulty);
       });
     }
@@ -154,6 +159,7 @@ export class InterfaceController {
     for (const button of upgradeButtons) {
       button.addEventListener('click', () => {
         this.startMusic?.();
+        this.playSfx?.('upgrade', 0.9);
         const id = button.dataset.upgrade as UpgradeId;
         this.director.applyUpgrade(id);
       });

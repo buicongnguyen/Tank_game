@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
 import type {
@@ -278,6 +279,7 @@ export class BattleScene extends Phaser.Scene {
   private readonly director: GameDirector;
   private readonly onHud: (snapshot: HudSnapshot) => void;
   private readonly gamepad: VirtualGamepad;
+  private readonly audio?: BattleMusic;
   private graphics?: Phaser.GameObjects.Graphics;
   private keys?: Record<string, Phaser.Input.Keyboard.Key>;
   private snapshot?: SessionSnapshot;
@@ -304,11 +306,13 @@ export class BattleScene extends Phaser.Scene {
     director: GameDirector,
     onHud: (snapshot: HudSnapshot) => void,
     gamepad: VirtualGamepad,
+    audio?: BattleMusic,
   ) {
     super('battle-scene');
     this.director = director;
     this.onHud = onHud;
     this.gamepad = gamepad;
+    this.audio = audio;
   }
 
   create(): void {
@@ -348,6 +352,7 @@ export class BattleScene extends Phaser.Scene {
     const player = this.player;
     const mission = this.mission;
     if (!snapshot || !player || !mission || snapshot.phase !== 'playing') {
+      this.audio?.setEngineLoad(0);
       this.render();
       return;
     }
@@ -493,6 +498,7 @@ export class BattleScene extends Phaser.Scene {
     player.vy += (desiredVy - player.vy) * response;
 
     const speed = Math.hypot(player.vx, player.vy);
+    this.audio?.setEngineLoad(clamp(speed / stats.engine, 0, 1));
     if (speed > 14) {
       player.bodyAngle = approachAngle(player.bodyAngle, Math.atan2(player.vy, player.vx), stats.turnRate * dt);
     }
@@ -535,6 +541,7 @@ export class BattleScene extends Phaser.Scene {
       this.repairCharges -= 1;
       player.health = Math.min(player.maxHealth, player.health + 170 + (stats.repairCharges - 2) * 28);
       this.addFloatingText(player.x, player.y - 58, 'Field Repair', 0xa2db7c);
+      this.audio?.playSfx('repair', 0.9);
     }
 
     player.reloadTimer = Math.max(0, player.reloadTimer - delta);
@@ -768,10 +775,14 @@ export class BattleScene extends Phaser.Scene {
 
       const playerInside = Phaser.Math.Distance.Between(player.x, player.y, zone.x, zone.y) < zone.radius;
       const enemyInside = this.enemies.some((enemy) => enemy.alive && Phaser.Math.Distance.Between(enemy.x, enemy.y, zone.x, zone.y) < zone.radius);
+      const previousProgress = zone.progress;
       if (playerInside && !enemyInside) {
         zone.progress = Math.min(1, zone.progress + dt * 0.22);
       } else if (enemyInside) {
         zone.progress = Math.max(0, zone.progress - dt * 0.08);
+      }
+      if (previousProgress < 1 && zone.progress >= 1) {
+        this.playSpatialSfx('capture', zone.x, zone.y, 0.9);
       }
     }
   }
@@ -868,6 +879,8 @@ export class BattleScene extends Phaser.Scene {
     const score = clearBonus + aliveBonus;
     const scrap = 35 + this.snapshot.currentMissionIndex * 12 + Math.round(this.enemies.filter((enemy) => !enemy.alive).reduce((sum, enemy) => sum + enemy.scrap, 0) * 0.45);
     this.addFloatingText(this.player.x, this.player.y - 70, 'Mission Clear', 0xa2db7c);
+    this.audio?.setEngineLoad(0);
+    this.audio?.playSfx('mission-clear', 0.9);
     this.time.delayedCall(600, () => {
       this.director.completeCurrentMission({ score, scrap });
     });
@@ -879,6 +892,8 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.missionResolved = true;
+    this.audio?.setEngineLoad(0);
+    this.audio?.playSfx('mission-fail', 0.95);
     if (this.player) {
       this.addFloatingText(this.player.x, this.player.y - 70, reason, 0xff845f);
     }
@@ -914,6 +929,7 @@ export class BattleScene extends Phaser.Scene {
       color,
     });
     this.projectileSerial += 1;
+    this.playSpatialSfx(ignoreReload ? 'rocket' : 'cannon', source.x, source.y, team === 'player' ? 1 : 0.42);
   }
 
   private damageTank(target: TankRuntime, damage: number, projectile: ProjectileRuntime, blastRadius: number): void {
@@ -1005,6 +1021,18 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  private playSpatialSfx(cue: TankSfxCue, x: number, y: number, intensity = 1): void {
+    const player = this.player;
+    if (!player) {
+      this.audio?.playSfx(cue, intensity * 0.45);
+      return;
+    }
+
+    const distance = Phaser.Math.Distance.Between(x, y, player.x, player.y);
+    const falloff = clamp(1 - distance / 1500, 0.16, 1);
+    this.audio?.playSfx(cue, intensity * falloff);
+  }
+
   private createExplosion(x: number, y: number, radius: number, color: number): void {
     if (radius <= 0) {
       return;
@@ -1018,6 +1046,7 @@ export class BattleScene extends Phaser.Scene {
       duration: 360,
       color,
     });
+    this.playSpatialSfx(radius >= 100 ? 'explosion' : 'impact', x, y, radius >= 100 ? 1 : 0.72);
     if (this.cameras.main) {
       this.cameras.main.shake(80, clamp(radius / 8000, 0.003, 0.014));
     }
@@ -1026,6 +1055,7 @@ export class BattleScene extends Phaser.Scene {
   private callArtilleryStrike(): void {
     const target = this.getArtilleryTarget();
     this.addFloatingText(target.x, target.y - 52, 'Artillery', 0xffd27a);
+    this.audio?.playSfx('artillery', 0.85);
     for (let index = 0; index < 4; index += 1) {
       this.time.delayedCall(index * 155, () => {
         const offsetAngle = index * Math.PI * 0.5 + 0.35;

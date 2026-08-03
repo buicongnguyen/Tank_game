@@ -125,7 +125,7 @@ Status: implemented. Mission clears award score and scrap, intermission offers t
 - Add phone QA pass: portrait/landscape, safe areas, app resume, audio, frame rate, install flow.
 - Publish web version through GitHub Pages and debug APK through GitHub Releases.
 
-Status: partially implemented. The runtime now uses procedural tank, shell, cover, explosion, zone, and escort visuals, and inherited sprite assets were removed from the shipped public asset tree. WebAudio battle music remains. On August 3, 2026, `npm run build`, `npx cap sync android`, `npm audit`, and Android `assembleDebug` all passed locally, producing `android/app/build/outputs/apk/debug/app-debug.apk`. GitHub push and hosted deployment are still blocked until the empty `buicongnguyen/Tank_game` repository exists or GitHub CLI auth is repaired.
+Status: implemented for the deployable prototype. The runtime uses procedural tank, shell, cover, explosion, zone, and escort visuals, and inherited sprite assets were removed from the shipped public asset tree. Procedural WebAudio now covers battle music, engine load, cannon fire, rockets, impacts, explosions, artillery, repairs, upgrades, and mission result cues. On August 3, 2026, `npm run build`, `npx cap sync android`, `npm audit`, and Android `assembleDebug` all passed locally, producing `android/app/build/outputs/apk/debug/app-debug.apk`. GitHub Pages and the debug APK prerelease are deployed. Physical phone install QA is still pending because `adb devices` shows no connected Android device or running emulator.
 
 ## First Playable Milestone
 
