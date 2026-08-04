@@ -39,6 +39,7 @@ interface TankRuntime {
   scrap: number;
   alive: boolean;
   exposed: boolean;
+  trackPhase: number;
 }
 
 type ProjectileKind = 'shell' | 'rocket';
@@ -89,6 +90,12 @@ interface EscortRuntime {
   exitX: number;
 }
 
+interface ExplosionSpark {
+  angle: number;
+  length: number;
+  speed: number;
+}
+
 interface ExplosionRuntime {
   x: number;
   y: number;
@@ -96,6 +103,7 @@ interface ExplosionRuntime {
   age: number;
   duration: number;
   color: number;
+  sparks: ExplosionSpark[];
 }
 
 interface FloatingText {
@@ -471,6 +479,7 @@ export class BattleScene extends Phaser.Scene {
       scrap: 0,
       alive: true,
       exposed: false,
+      trackPhase: 0,
     };
 
     this.cameras.main.setBounds(0, 0, mission.worldWidth, mission.worldHeight);
@@ -505,6 +514,7 @@ export class BattleScene extends Phaser.Scene {
       scrap: template.scrap,
       alive: true,
       exposed: false,
+      trackPhase: 0,
     };
   }
 
@@ -523,6 +533,7 @@ export class BattleScene extends Phaser.Scene {
     if (speed > 14) {
       player.bodyAngle = approachAngle(player.bodyAngle, Math.atan2(player.vy, player.vx), stats.turnRate * dt);
     }
+    player.trackPhase += speed * dt;
 
     player.x = clamp(player.x + player.vx * dt, player.radius, mission.worldWidth - player.radius);
     player.y = clamp(player.y + player.vy * dt, player.radius, mission.worldHeight - player.radius);
@@ -643,13 +654,13 @@ export class BattleScene extends Phaser.Scene {
           enemy.bodyAngle = approachAngle(enemy.bodyAngle, Math.atan2(enemy.vy, enemy.vx), 3.2 * dt);
         }
       }
+      enemy.trackPhase += Math.hypot(enemy.vx, enemy.vy) * dt;
 
       const openingGraceMs = mission.kind === 'assault' ? 3600 : 2000;
       const canFire = this.missionElapsed > openingGraceMs
         && enemy.reloadTimer <= 0
         && Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y) < 820;
       if (canFire) {
-        enemy.reloadTimer = enemy.reloadMs;
         this.fireProjectile(
           enemy,
           'enemy',
@@ -1118,17 +1129,27 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    const big = radius >= 100;
+    const duration = clamp(240 + radius * (big ? 2.1 : 1.15), 260, 900);
+    const sparkCount = big ? 10 : 6;
+    const sparks: ExplosionSpark[] = Array.from({ length: sparkCount }, (_, index) => ({
+      angle: (index / sparkCount) * Math.PI * 2 + Math.random() * 0.6,
+      length: radius * (0.7 + Math.random() * 0.6),
+      speed: 0.8 + Math.random() * 0.5,
+    }));
+
     this.explosions.push({
       x,
       y,
       radius,
       age: 0,
-      duration: 360,
+      duration,
       color,
+      sparks,
     });
     this.playSpatialSfx(radius >= 100 ? 'explosion' : 'impact', x, y, radius >= 100 ? 1 : 0.72);
     if (this.cameras.main) {
-      this.cameras.main.shake(80, clamp(radius / 8000, 0.003, 0.014));
+      this.cameras.main.shake(big ? 130 : 80, clamp(radius / (big ? 5200 : 8000), 0.003, 0.018));
     }
   }
 
@@ -1306,20 +1327,65 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (mission.kind === 'assault' && mission.exitX) {
-      graphics.fillStyle(0xff6b4a, this.convoyEscapeCountdownMs > 0 ? 0.34 : 0.18);
-      graphics.fillRect(mission.exitX - 18, 0, 36, mission.worldHeight);
-      graphics.lineStyle(4, 0xffd27a, this.convoyEscapeCountdownMs > 0 ? 0.95 : 0.58);
-      graphics.lineBetween(mission.exitX - 18, 0, mission.exitX - 18, mission.worldHeight);
-      graphics.lineBetween(mission.exitX + 18, 0, mission.exitX + 18, mission.worldHeight);
+      this.drawExitLane(graphics, mission);
     }
+  }
+
+  private drawExitLane(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
+    const exitX = mission.exitX;
+    if (!exitX) {
+      return;
+    }
+
+    const active = this.convoyEscapeCountdownMs > 0;
+    const laneHalf = 18;
+
+    graphics.fillStyle(0xff6b4a, active ? 0.34 : 0.18);
+    graphics.fillRect(exitX - laneHalf, 0, laneHalf * 2, mission.worldHeight);
+
+    const stripeSpacing = 34;
+    const scrollSpeed = active ? 16 : 42;
+    const offset = (this.missionElapsed / scrollSpeed) % stripeSpacing;
+    graphics.lineStyle(7, active ? 0xff8a5b : 0xffd27a, active ? 0.5 : 0.24);
+    for (let sy = -stripeSpacing * 2; sy < mission.worldHeight + stripeSpacing * 2; sy += stripeSpacing) {
+      const y = sy + offset;
+      graphics.lineBetween(exitX - laneHalf, y, exitX + laneHalf, y - laneHalf * 2);
+    }
+
+    graphics.lineStyle(4, 0xffd27a, active ? 0.95 : 0.58);
+    graphics.lineBetween(exitX - laneHalf, 0, exitX - laneHalf, mission.worldHeight);
+    graphics.lineBetween(exitX + laneHalf, 0, exitX + laneHalf, mission.worldHeight);
   }
 
   private drawCaptureZones(graphics: Phaser.GameObjects.Graphics): void {
     for (const zone of this.captureZones) {
-      graphics.lineStyle(3, zone.progress >= 1 ? 0xa2db7c : 0xf0c15a, 0.7);
-      graphics.fillStyle(zone.progress >= 1 ? 0xa2db7c : 0xf0c15a, 0.12 + zone.progress * 0.18);
+      const captured = zone.progress >= 1;
+      const color = captured ? 0xa2db7c : 0xf0c15a;
+      const pulse = 0.5 + 0.5 * Math.sin(this.missionElapsed / 380);
+
+      graphics.fillStyle(color, 0.12 + zone.progress * 0.18);
       graphics.fillCircle(zone.x, zone.y, zone.radius);
+      graphics.lineStyle(3, color, 0.7);
       graphics.strokeCircle(zone.x, zone.y, zone.radius);
+
+      graphics.lineStyle(2, color, 0.2 + pulse * 0.25);
+      graphics.strokeCircle(zone.x, zone.y, zone.radius * (0.72 + pulse * 0.08));
+
+      const spin = this.missionElapsed / (captured ? 2600 : 1400);
+      const tickCount = 8;
+      graphics.lineStyle(2, color, 0.55);
+      for (let i = 0; i < tickCount; i += 1) {
+        const angle = spin + (i / tickCount) * Math.PI * 2;
+        const innerR = zone.radius - 10;
+        const outerR = zone.radius + (captured ? 2 : 10);
+        graphics.lineBetween(
+          zone.x + Math.cos(angle) * innerR,
+          zone.y + Math.sin(angle) * innerR,
+          zone.x + Math.cos(angle) * outerR,
+          zone.y + Math.sin(angle) * outerR,
+        );
+      }
+
       graphics.fillStyle(0xf6f2de, 0.9);
       graphics.fillRect(zone.x - 44, zone.y - zone.radius - 16, 88 * zone.progress, 6);
     }
@@ -1344,31 +1410,172 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (cover.kind === 'repair') {
-        graphics.fillStyle(0x4fd88b, 0.28);
-        graphics.fillCircle(cover.x, cover.y, cover.width * 0.62);
-        graphics.lineStyle(2, 0xa2db7c, 0.72);
-        graphics.strokeCircle(cover.x, cover.y, cover.width * 0.62);
+        this.drawCoverRepairPad(graphics, cover);
         continue;
       }
 
       if (cover.kind === 'mine') {
-        graphics.fillStyle(0xff704f, 0.8);
-        graphics.fillCircle(cover.x, cover.y, 17);
-        graphics.lineStyle(2, 0x4d1411, 1);
-        graphics.strokeCircle(cover.x, cover.y, 22);
+        this.drawCoverMine(graphics, cover);
         continue;
       }
 
-      const color = cover.kind === 'concrete' ? 0x71777f : cover.kind === 'barrel' ? 0xff8a42 : 0x896a3c;
-      graphics.fillStyle(color, 0.92);
-      graphics.fillRect(cover.x - cover.width * 0.5, cover.y - cover.height * 0.5, cover.width, cover.height);
-      graphics.lineStyle(2, 0x0b0c10, 0.45);
-      graphics.strokeRect(cover.x - cover.width * 0.5, cover.y - cover.height * 0.5, cover.width, cover.height);
-      graphics.fillStyle(0x0b0c10, 0.55);
-      graphics.fillRect(cover.x - cover.width * 0.5, cover.y - cover.height * 0.5 - 8, cover.width, 5);
-      graphics.fillStyle(0xf0d78b, 0.85);
-      graphics.fillRect(cover.x - cover.width * 0.5, cover.y - cover.height * 0.5 - 8, cover.width * clamp(cover.health / cover.maxHealth, 0, 1), 5);
+      if (cover.kind === 'concrete') {
+        this.drawCoverBuilding(graphics, cover);
+        continue;
+      }
+
+      if (cover.kind === 'barrel') {
+        this.drawCoverBarrel(graphics, cover);
+        continue;
+      }
+
+      this.drawCoverCrate(graphics, cover);
     }
+  }
+
+  private drawCoverHealthBar(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime, top: number): void {
+    const left = cover.x - cover.width * 0.5;
+    graphics.fillStyle(0x0b0c10, 0.55);
+    graphics.fillRect(left, top, cover.width, 5);
+    graphics.fillStyle(0xf0d78b, 0.85);
+    graphics.fillRect(left, top, cover.width * clamp(cover.health / cover.maxHealth, 0, 1), 5);
+  }
+
+  private drawCoverRepairPad(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const pulse = 0.5 + 0.5 * Math.sin(this.missionElapsed / 340);
+    const outerRadius = cover.width * 0.62;
+    graphics.fillStyle(0x4fd88b, 0.22 + pulse * 0.1);
+    graphics.fillCircle(cover.x, cover.y, outerRadius);
+    graphics.lineStyle(2, 0xa2db7c, 0.72);
+    graphics.strokeCircle(cover.x, cover.y, outerRadius);
+    graphics.lineStyle(2, 0xa2db7c, 0.35 + pulse * 0.25);
+    graphics.strokeCircle(cover.x, cover.y, outerRadius * (0.7 + pulse * 0.1));
+
+    const crossArm = outerRadius * 0.34;
+    const crossThickness = Math.max(3, outerRadius * 0.16);
+    graphics.fillStyle(0xdcffe9, 0.85);
+    graphics.fillRect(cover.x - crossThickness * 0.5, cover.y - crossArm, crossThickness, crossArm * 2);
+    graphics.fillRect(cover.x - crossArm, cover.y - crossThickness * 0.5, crossArm * 2, crossThickness);
+  }
+
+  private drawCoverMine(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    graphics.fillStyle(0x3a1512, 0.85);
+    graphics.fillCircle(cover.x, cover.y, 19);
+    graphics.fillStyle(0xff704f, 0.85);
+    graphics.fillCircle(cover.x, cover.y, 15);
+    graphics.lineStyle(2, 0x4d1411, 1);
+    graphics.strokeCircle(cover.x, cover.y, 22);
+
+    const blink = Math.sin(this.missionElapsed / 220) > 0.4;
+    graphics.fillStyle(blink ? 0xffe6a0 : 0x7a2b20, 0.95);
+    graphics.fillCircle(cover.x, cover.y, 4);
+  }
+
+  private drawCoverBarrel(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const bodyColor = 0xff8a42;
+    const cornerRadius = Math.min(cover.width, cover.height) * 0.24;
+
+    graphics.fillStyle(darkenColor(bodyColor, 0.55), 0.5);
+    graphics.fillEllipse(cover.x, cover.y + cover.height * 0.42, cover.width * 0.92, cover.height * 0.28);
+
+    graphics.fillStyle(bodyColor, 0.94);
+    graphics.fillRoundedRect(left, top, cover.width, cover.height, cornerRadius);
+    graphics.lineStyle(2, 0x5c2a0c, 0.65);
+    graphics.strokeRoundedRect(left, top, cover.width, cover.height, cornerRadius);
+
+    graphics.lineStyle(2.5, 0x5c2a0c, 0.55);
+    graphics.lineBetween(left + 4, top + cover.height * 0.32, left + cover.width - 4, top + cover.height * 0.32);
+    graphics.lineBetween(left + 4, top + cover.height * 0.68, left + cover.width - 4, top + cover.height * 0.68);
+
+    graphics.fillStyle(0xffcf9a, 0.45);
+    graphics.fillEllipse(cover.x, top + cover.height * 0.2, cover.width * 0.55, cover.height * 0.14);
+
+    graphics.fillStyle(0xff5b2e, 0.9);
+    graphics.fillCircle(cover.x, cover.y, Math.min(cover.width, cover.height) * 0.09);
+
+    this.drawCoverHealthBar(graphics, cover, top - 8);
+  }
+
+  private drawCoverCrate(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const woodColor = 0x8a6a3c;
+
+    graphics.fillStyle(woodColor, 0.94);
+    graphics.fillRoundedRect(left, top, cover.width, cover.height, 4);
+    graphics.lineStyle(2, 0x2c1f10, 0.6);
+    graphics.strokeRoundedRect(left, top, cover.width, cover.height, 4);
+
+    graphics.lineStyle(1.5, 0x5c4322, 0.6);
+    const planks = Math.max(2, Math.round(cover.height / 22));
+    for (let i = 1; i < planks; i += 1) {
+      const ly = top + (cover.height / planks) * i;
+      graphics.lineBetween(left + 4, ly, left + cover.width - 4, ly);
+    }
+
+    graphics.lineStyle(2, 0x3a2a14, 0.45);
+    graphics.lineBetween(left, top, left + cover.width, top + cover.height);
+    graphics.lineBetween(left + cover.width, top, left, top + cover.height);
+
+    graphics.fillStyle(0x2c1f10, 0.85);
+    const bracket = Math.min(10, cover.width * 0.08, cover.height * 0.16);
+    for (const [cx, cy] of [
+      [left, top],
+      [left + cover.width - bracket, top],
+      [left, top + cover.height - bracket],
+      [left + cover.width - bracket, top + cover.height - bracket],
+    ]) {
+      graphics.fillRect(cx, cy, bracket, bracket);
+    }
+
+    graphics.fillStyle(0xd8b781, 0.3);
+    graphics.fillRect(left, top, cover.width, Math.max(3, cover.height * 0.12));
+
+    this.drawCoverHealthBar(graphics, cover, top - 8);
+  }
+
+  private drawCoverBuilding(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const wallColor = 0x71777f;
+    const roofColor = darkenColor(wallColor, 0.62);
+    const cornerRadius = Math.min(10, cover.height * 0.18);
+
+    graphics.fillStyle(wallColor, 0.94);
+    graphics.fillRoundedRect(left, top, cover.width, cover.height, cornerRadius);
+    graphics.lineStyle(2, 0x0b0c10, 0.5);
+    graphics.strokeRoundedRect(left, top, cover.width, cover.height, cornerRadius);
+
+    graphics.fillStyle(roofColor, 1);
+    graphics.fillRect(left - 6, top - 11, cover.width + 12, 12);
+    graphics.lineStyle(2, 0x0b0c10, 0.5);
+    graphics.strokeRect(left - 6, top - 11, cover.width + 12, 12);
+
+    const slitCount = Math.max(2, Math.round(cover.width / 70));
+    const slitWidth = Math.min(24, cover.width / (slitCount * 2));
+    graphics.fillStyle(0x14100c, 0.85);
+    for (let i = 0; i < slitCount; i += 1) {
+      const t = (i + 0.5) / slitCount;
+      const sx = left + cover.width * t - slitWidth * 0.5;
+      graphics.fillRect(sx, top + cover.height * 0.32, slitWidth, cover.height * 0.24);
+    }
+
+    const bagCount = Math.max(3, Math.round(cover.width / 42));
+    const bagWidth = (cover.width / bagCount) * 0.92;
+    graphics.fillStyle(0x8c7146, 0.9);
+    for (let i = 0; i < bagCount; i += 1) {
+      const t = (i + 0.5) / bagCount;
+      graphics.fillEllipse(left + cover.width * t, top + cover.height + 3, bagWidth, 13);
+    }
+    graphics.lineStyle(1.5, 0x3a2f1c, 0.5);
+    for (let i = 0; i < bagCount; i += 1) {
+      const t = (i + 0.5) / bagCount;
+      graphics.strokeEllipse(left + cover.width * t, top + cover.height + 3, bagWidth, 13);
+    }
+
+    this.drawCoverHealthBar(graphics, cover, top - 20);
   }
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
@@ -1521,6 +1728,7 @@ export class BattleScene extends Phaser.Scene {
     const sin = Math.sin(tank.bodyAngle);
 
     if (art.chassis === 'tracked') {
+      const wheelHubCount = 4;
       for (const side of [-1, 1]) {
         const oy = art.runnerOffset * r * side;
         const p1 = localToWorld(tank.x, tank.y, tank.bodyAngle, -length * 0.5, oy);
@@ -1528,17 +1736,32 @@ export class BattleScene extends Phaser.Scene {
         graphics.lineStyle(art.runnerWidth * r * 2, color, 1);
         graphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
 
-        graphics.lineStyle(2, 0x050805, 0.45);
-        const notches = 6;
-        for (let i = 0; i <= notches; i += 1) {
-          const t = i / notches;
-          const lx = -length * 0.5 + length * t;
-          const notch = localToWorld(tank.x, tank.y, tank.bodyAngle, lx, oy);
+        // road wheel hubs: fixed to the hull, do not scroll with the tread
+        graphics.fillStyle(darkenColor(color, 0.6), 0.9);
+        for (let i = 0; i < wheelHubCount; i += 1) {
+          const t = i / (wheelHubCount - 1);
+          const lx = -length * 0.42 + length * 0.84 * t;
+          const hub = localToWorld(tank.x, tank.y, tank.bodyAngle, lx, oy);
+          graphics.fillCircle(hub.x, hub.y, art.runnerWidth * r * 0.72);
+        }
+
+        // tread links: scroll along the track using distance travelled, giving the
+        // chain the look of rolling forward instead of sliding as a static block
+        const linkSpacing = Math.max(6, r * 0.22);
+        const scrollOffset = ((tank.trackPhase % linkSpacing) + linkSpacing) % linkSpacing;
+        graphics.lineStyle(2, 0x050805, 0.5);
+        const linkCount = Math.ceil(length / linkSpacing) + 2;
+        for (let i = -1; i < linkCount; i += 1) {
+          const lx = -length * 0.5 - linkSpacing + i * linkSpacing + scrollOffset;
+          if (lx < -length * 0.5 - 1 || lx > length * 0.5 + 1) {
+            continue;
+          }
+          const link = localToWorld(tank.x, tank.y, tank.bodyAngle, lx, oy);
           graphics.lineBetween(
-            notch.x - sin * art.runnerWidth * r,
-            notch.y + cos * art.runnerWidth * r,
-            notch.x + sin * art.runnerWidth * r,
-            notch.y - cos * art.runnerWidth * r,
+            link.x - sin * art.runnerWidth * r,
+            link.y + cos * art.runnerWidth * r,
+            link.x + sin * art.runnerWidth * r,
+            link.y - cos * art.runnerWidth * r,
           );
         }
       }
@@ -1679,10 +1902,46 @@ export class BattleScene extends Phaser.Scene {
   private drawExplosions(graphics: Phaser.GameObjects.Graphics): void {
     for (const explosion of this.explosions) {
       const progress = clamp(explosion.age / explosion.duration, 0, 1);
-      graphics.fillStyle(explosion.color, 0.28 * (1 - progress));
-      graphics.fillCircle(explosion.x, explosion.y, explosion.radius * progress);
-      graphics.lineStyle(4, explosion.color, 0.62 * (1 - progress));
-      graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * progress);
+      const easeOut = 1 - (1 - progress) * (1 - progress);
+
+      // drifting smoke puff: lags behind the blast and lingers longest
+      const smokeProgress = clamp(progress * 1.15, 0, 1);
+      graphics.fillStyle(0x3a3a38, 0.16 * (1 - smokeProgress));
+      graphics.fillCircle(
+        explosion.x,
+        explosion.y - smokeProgress * explosion.radius * 0.3,
+        explosion.radius * (0.6 + smokeProgress * 0.7),
+      );
+
+      // main shockwave: fast expanding ring with fading fill
+      graphics.fillStyle(explosion.color, 0.3 * (1 - progress));
+      graphics.fillCircle(explosion.x, explosion.y, explosion.radius * easeOut);
+      graphics.lineStyle(4, explosion.color, 0.65 * (1 - progress));
+      graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * easeOut);
+
+      // secondary ring lagging behind the main shockwave
+      const laggingProgress = clamp(progress * 0.7, 0, 1);
+      graphics.lineStyle(2.5, explosion.color, 0.4 * (1 - progress));
+      graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * laggingProgress * 1.3);
+
+      // bright white-hot core, visible only in the first moments
+      if (progress < 0.35) {
+        const flashAlpha = 1 - progress / 0.35;
+        graphics.fillStyle(0xfff2c9, 0.85 * flashAlpha);
+        graphics.fillCircle(explosion.x, explosion.y, explosion.radius * 0.32 * (1 - progress * 0.5));
+      }
+
+      // radial debris sparks shooting outward
+      for (const spark of explosion.sparks) {
+        const reach = clamp(progress * spark.speed, 0, 1);
+        const headX = explosion.x + Math.cos(spark.angle) * spark.length * reach;
+        const headY = explosion.y + Math.sin(spark.angle) * spark.length * reach;
+        const tailReach = Math.max(0, reach - 0.22);
+        const tailX = explosion.x + Math.cos(spark.angle) * spark.length * tailReach;
+        const tailY = explosion.y + Math.sin(spark.angle) * spark.length * tailReach;
+        graphics.lineStyle(2, explosion.color, 0.75 * (1 - progress));
+        graphics.lineBetween(tailX, tailY, headX, headY);
+      }
     }
   }
 
