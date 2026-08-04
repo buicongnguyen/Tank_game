@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
+import { darkenColor, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
 import type {
   BossStatus,
   CaptureZoneConfig,
@@ -40,9 +41,13 @@ interface TankRuntime {
   exposed: boolean;
 }
 
+type ProjectileKind = 'shell' | 'rocket';
+
 interface ProjectileRuntime {
   id: number;
   team: Team;
+  kind: ProjectileKind;
+  sourceKind: TankArtKind;
   x: number;
   y: number;
   previousX: number;
@@ -209,6 +214,12 @@ function normalizeAngle(angle: number): number {
 
 function angleDifference(a: number, b: number): number {
   return Phaser.Math.Angle.Wrap(b - a);
+}
+
+function localToWorld(x: number, y: number, angle: number, lx: number, ly: number): { x: number; y: number } {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return { x: x + lx * cos - ly * sin, y: y + lx * sin + ly * cos };
 }
 
 function approachAngle(current: number, target: number, amount: number): number {
@@ -542,7 +553,7 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.wantsSecondary() && this.secondaryTimer <= 0) {
       this.secondaryTimer = stats.secondaryCooldownMs;
-      this.fireProjectile(player, 'player', stats.shellDamage * 0.72, stats.shellSpeed * 1.15, 46, 0x95e7ff, true);
+      this.fireProjectile(player, 'player', stats.shellDamage * 0.72, stats.shellSpeed * 1.15, 46, 0x95e7ff, 'rocket', true);
       this.addFloatingText(player.x, player.y - 48, 'Rocket', 0x95e7ff);
     }
 
@@ -956,7 +967,16 @@ export class BattleScene extends Phaser.Scene {
     this.time.delayedCall(900, () => this.director.failMission(reason));
   }
 
-  private fireProjectile(source: TankRuntime, team: Team, damage: number, shellSpeed: number, blastRadius: number, color: number, ignoreReload = false): void {
+  private fireProjectile(
+    source: TankRuntime,
+    team: Team,
+    damage: number,
+    shellSpeed: number,
+    blastRadius: number,
+    color: number,
+    kind: ProjectileKind = 'shell',
+    ignoreReload = false,
+  ): void {
     if (!source.alive || (!ignoreReload && source.reloadTimer > 0)) {
       return;
     }
@@ -972,6 +992,8 @@ export class BattleScene extends Phaser.Scene {
     this.projectiles.push({
       id: this.projectileSerial,
       team,
+      kind,
+      sourceKind: source.kind,
       x,
       y,
       previousX: x,
@@ -985,7 +1007,7 @@ export class BattleScene extends Phaser.Scene {
       color,
     });
     this.projectileSerial += 1;
-    this.playSpatialSfx(ignoreReload ? 'rocket' : 'cannon', source.x, source.y, team === 'player' ? 1 : 0.42);
+    this.playSpatialSfx(kind === 'rocket' ? 'rocket' : 'cannon', source.x, source.y, team === 'player' ? 1 : 0.42);
   }
 
   private damageTank(target: TankRuntime, damage: number, projectile: ProjectileRuntime, blastRadius: number): void {
@@ -1039,6 +1061,8 @@ export class BattleScene extends Phaser.Scene {
       const fakeProjectile: ProjectileRuntime = {
         id: -1,
         team: sourceTeam,
+        kind: 'shell',
+        sourceKind: sourceTeam === 'player' ? 'player' : 'raider',
         x,
         y,
         previousX: x,
@@ -1349,25 +1373,91 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
-      const speed = Math.max(1, Math.hypot(projectile.vx, projectile.vy));
-      const ux = projectile.vx / speed;
-      const uy = projectile.vy / speed;
-      const trailLength = projectile.team === 'player' ? 86 : 56;
-      const tailX = projectile.x - ux * trailLength;
-      const tailY = projectile.y - uy * trailLength;
-      const shellRadius = projectile.team === 'player' ? projectile.radius + 4 : projectile.radius + 2;
-
-      graphics.lineStyle(projectile.team === 'player' ? 12 : 8, projectile.color, 0.18);
-      graphics.lineBetween(tailX, tailY, projectile.x, projectile.y);
-      graphics.lineStyle(projectile.team === 'player' ? 6 : 4, projectile.color, 0.82);
-      graphics.lineBetween(tailX + ux * trailLength * 0.28, tailY + uy * trailLength * 0.28, projectile.x, projectile.y);
-      graphics.fillStyle(0xffffff, 0.78);
-      graphics.fillCircle(projectile.x, projectile.y, Math.max(3, shellRadius * 0.42));
-      graphics.lineStyle(2, 0x140f08, 0.62);
-      graphics.strokeCircle(projectile.x, projectile.y, shellRadius);
-      graphics.fillStyle(projectile.color, 1);
-      graphics.fillCircle(projectile.x, projectile.y, shellRadius);
+      if (projectile.kind === 'rocket') {
+        this.drawRocketProjectile(graphics, projectile);
+      } else if (projectile.sourceKind === 'boss') {
+        this.drawBossShell(graphics, projectile);
+      } else {
+        this.drawShell(graphics, projectile);
+      }
     }
+  }
+
+  private drawTrail(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime, angle: number, length: number, width: number, color = projectile.color): void {
+    const tail = localToWorld(projectile.x, projectile.y, angle, -length, 0);
+    graphics.lineStyle(width, color, 0.18);
+    graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+    const midTail = localToWorld(projectile.x, projectile.y, angle, -length * 0.32, 0);
+    graphics.lineStyle(width * 0.5, color, 0.78);
+    graphics.lineBetween(midTail.x, midTail.y, projectile.x, projectile.y);
+  }
+
+  private drawShell(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    const isPlayer = projectile.team === 'player';
+    const length = isPlayer ? 30 : 22;
+    const width = isPlayer ? 11 : 8;
+
+    this.drawTrail(graphics, projectile, angle, isPlayer ? 74 : 48, isPlayer ? 10 : 6);
+
+    const points = [
+      { x: length * 0.55, y: 0 },
+      { x: length * 0.1, y: -width * 0.5 },
+      { x: -length * 0.45, y: -width * 0.5 },
+      { x: -length * 0.45, y: width * 0.5 },
+      { x: length * 0.1, y: width * 0.5 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x140f08, 0.65, 1.5);
+
+    const nose = localToWorld(projectile.x, projectile.y, angle, length * 0.3, 0);
+    graphics.fillStyle(0xffffff, 0.85);
+    graphics.fillCircle(nose.x, nose.y, Math.max(2, width * 0.22));
+  }
+
+  private drawBossShell(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    this.drawTrail(graphics, projectile, angle, 96, 14);
+
+    graphics.fillStyle(projectile.color, 0.22);
+    graphics.fillCircle(projectile.x, projectile.y, projectile.radius + 10);
+    graphics.lineStyle(2, projectile.color, 0.7);
+    graphics.strokeCircle(projectile.x, projectile.y, projectile.radius + 6);
+
+    const points = [
+      { x: 18, y: 0 },
+      { x: 4, y: -9 },
+      { x: -16, y: -9 },
+      { x: -16, y: 9 },
+      { x: 4, y: 9 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x140f08, 0.7, 2);
+    graphics.fillStyle(0xffffff, 0.9);
+    graphics.fillCircle(projectile.x, projectile.y, Math.max(3, projectile.radius * 0.4));
+  }
+
+  private drawRocketProjectile(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    this.drawTrail(graphics, projectile, angle, 60, 8, 0xffb15f);
+
+    const points = [
+      { x: 16, y: 0 },
+      { x: 4, y: -6 },
+      { x: -10, y: -6 },
+      { x: -10, y: 6 },
+      { x: 4, y: 6 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x0c2a33, 0.7, 1.5);
+
+    const finBack = localToWorld(projectile.x, projectile.y, angle, -10, 0);
+    for (const side of [-1, 1]) {
+      const finTip = localToWorld(projectile.x, projectile.y, angle, -18, side * 9);
+      graphics.lineStyle(2, 0x1c3a44, 0.9);
+      graphics.lineBetween(finBack.x, finBack.y, finTip.x, finTip.y);
+    }
+
+    const flameTip = localToWorld(projectile.x, projectile.y, angle, -22, 0);
+    graphics.fillStyle(0xffb15f, 0.85);
+    graphics.fillCircle(flameTip.x, flameTip.y, 4);
   }
 
   private drawTanks(graphics: Phaser.GameObjects.Graphics): void {
@@ -1385,39 +1475,205 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawTank(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, color: number): void {
-    const width = tank.radius * (tank.kind === 'boss' ? 2.4 : 2);
-    const height = tank.radius * (tank.kind === 'boss' ? 1.7 : 1.45);
-    this.drawRotatedRect(graphics, tank.x, tank.y, width, height, tank.bodyAngle, color, 1);
-    this.drawRotatedRect(graphics, tank.x, tank.y, tank.radius * 0.9, tank.radius * 0.72, tank.turretAngle, 0x2f342f, 1);
-    graphics.lineStyle(tank.kind === 'boss' ? 9 : 6, tank.exposed ? 0xfff0a0 : 0x20251f, 1);
-    graphics.lineBetween(
-      tank.x + Math.cos(tank.turretAngle) * tank.radius * 0.28,
-      tank.y + Math.sin(tank.turretAngle) * tank.radius * 0.28,
-      tank.x + Math.cos(tank.turretAngle) * tank.radius * 1.8,
-      tank.y + Math.sin(tank.turretAngle) * tank.radius * 1.8,
-    );
+    const art = TANK_ART[tank.kind] ?? TANK_ART.raider;
+    const r = tank.radius;
+    const turretColor = darkenColor(color, 0.5);
+    const runnerColor = darkenColor(color, 0.32);
+
+    if (art.chassis !== 'static') {
+      this.drawRunners(graphics, tank, art, runnerColor);
+    }
+
+    this.drawPolygon(graphics, tank.x, tank.y, art.hull, tank.bodyAngle, r, color, 1, 0x050805, 0.5, 2);
+
+    if (art.hasArmorBlocks) {
+      this.drawArmorBlocks(graphics, tank, art, darkenColor(color, 0.72));
+    }
+
+    if (art.chassis !== 'static') {
+      this.drawNoseLights(graphics, tank, art);
+    }
+
+    if (tank.exposed) {
+      const glowPoints = art.turret.map((point) => ({ x: point.x * 1.28, y: point.y * 1.28 }));
+      this.drawPolygon(graphics, tank.x, tank.y, glowPoints, tank.turretAngle, r, 0xfff0a0, 0.32, 0xfff0a0, 0.5, 2);
+    }
+
+    this.drawPolygon(graphics, tank.x, tank.y, art.turret, tank.turretAngle, r, turretColor, 1, 0x050805, 0.5, 2);
+    this.drawHatch(graphics, tank);
+
+    if (art.hasSensorMast) {
+      this.drawSensorMast(graphics, tank);
+    }
+
+    this.drawBarrel(graphics, tank, art);
+
     graphics.fillStyle(0x070908, 0.75);
-    graphics.fillRect(tank.x - tank.radius, tank.y - tank.radius - 18, tank.radius * 2, 5);
+    graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2, 5);
     graphics.fillStyle(tank.team === 'player' ? 0xa2db7c : 0xff845f, 0.95);
-    graphics.fillRect(tank.x - tank.radius, tank.y - tank.radius - 18, tank.radius * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 5);
+    graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 5);
   }
 
-  private drawRotatedRect(graphics: Phaser.GameObjects.Graphics, x: number, y: number, width: number, height: number, angle: number, color: number, alpha: number): void {
+  private drawRunners(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, color: number): void {
+    const r = tank.radius;
+    const length = r * 1.7;
+    const cos = Math.cos(tank.bodyAngle);
+    const sin = Math.sin(tank.bodyAngle);
+
+    if (art.chassis === 'tracked') {
+      for (const side of [-1, 1]) {
+        const oy = art.runnerOffset * r * side;
+        const p1 = localToWorld(tank.x, tank.y, tank.bodyAngle, -length * 0.5, oy);
+        const p2 = localToWorld(tank.x, tank.y, tank.bodyAngle, length * 0.5, oy);
+        graphics.lineStyle(art.runnerWidth * r * 2, color, 1);
+        graphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
+
+        graphics.lineStyle(2, 0x050805, 0.45);
+        const notches = 6;
+        for (let i = 0; i <= notches; i += 1) {
+          const t = i / notches;
+          const lx = -length * 0.5 + length * t;
+          const notch = localToWorld(tank.x, tank.y, tank.bodyAngle, lx, oy);
+          graphics.lineBetween(
+            notch.x - sin * art.runnerWidth * r,
+            notch.y + cos * art.runnerWidth * r,
+            notch.x + sin * art.runnerWidth * r,
+            notch.y - cos * art.runnerWidth * r,
+          );
+        }
+      }
+      return;
+    }
+
+    if (art.chassis === 'wheeled') {
+      const wheelCount: number = 3;
+      for (const side of [-1, 1]) {
+        const oy = art.runnerOffset * r * side;
+        for (let i = 0; i < wheelCount; i += 1) {
+          const t = wheelCount === 1 ? 0.5 : i / (wheelCount - 1);
+          const lx = -length * 0.42 + length * 0.84 * t;
+          const wheel = localToWorld(tank.x, tank.y, tank.bodyAngle, lx, oy);
+          graphics.fillStyle(0x14100f, 1);
+          graphics.fillCircle(wheel.x, wheel.y, r * 0.22);
+          graphics.fillStyle(color, 1);
+          graphics.fillCircle(wheel.x, wheel.y, r * 0.12);
+        }
+      }
+    }
+  }
+
+  private drawArmorBlocks(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, color: number): void {
+    const r = tank.radius;
+    const size = r * 0.24;
+    const blockPoints = [
+      { x: -1, y: -1 },
+      { x: 1, y: -1 },
+      { x: 1, y: 1 },
+      { x: -1, y: 1 },
+    ];
+    for (const side of [-1, 1]) {
+      const oy = (art.runnerOffset - 0.16) * r * side;
+      for (const lxFrac of [-0.5, -0.08, 0.36]) {
+        const block = localToWorld(tank.x, tank.y, tank.bodyAngle, lxFrac * r, oy);
+        this.drawPolygon(graphics, block.x, block.y, blockPoints, tank.bodyAngle, size * 0.5, color, 0.92, 0x050805, 0.4, 1);
+      }
+    }
+  }
+
+  private drawNoseLights(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt): void {
+    const r = tank.radius;
+    const noseX = art.hull.reduce((max, point) => Math.max(max, point.x), 0);
+    const left = localToWorld(tank.x, tank.y, tank.bodyAngle, noseX * r * 0.82, -r * 0.28);
+    const right = localToWorld(tank.x, tank.y, tank.bodyAngle, noseX * r * 0.82, r * 0.28);
+    graphics.fillStyle(0xffe9a8, 0.9);
+    graphics.fillCircle(left.x, left.y, Math.max(1.5, r * 0.05));
+    graphics.fillCircle(right.x, right.y, Math.max(1.5, r * 0.05));
+  }
+
+  private drawHatch(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime): void {
+    const r = tank.radius;
+    const pos = localToWorld(tank.x, tank.y, tank.turretAngle, -r * 0.16, r * 0.15);
+    graphics.fillStyle(0x11130f, 0.85);
+    graphics.fillCircle(pos.x, pos.y, r * 0.1);
+    graphics.lineStyle(1.5, 0x050805, 0.6);
+    graphics.strokeCircle(pos.x, pos.y, r * 0.1);
+  }
+
+  private drawSensorMast(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime): void {
+    const r = tank.radius;
+    const base = localToWorld(tank.x, tank.y, tank.turretAngle, -r * 0.5, 0);
+    const tip = localToWorld(tank.x, tank.y, tank.turretAngle, -r * 0.72, -r * 0.3);
+    graphics.lineStyle(3, 0x1c1f22, 1);
+    graphics.lineBetween(base.x, base.y, tip.x, tip.y);
+    graphics.fillStyle(0xff5b4a, 0.95);
+    graphics.fillCircle(tip.x, tip.y, r * 0.09);
+  }
+
+  private drawBarrel(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt): void {
+    const r = tank.radius;
+    const innerStart = r * 0.28;
+    const length = art.barrelLength * r;
+    const start = localToWorld(tank.x, tank.y, tank.turretAngle, innerStart, 0);
+    const tip = localToWorld(tank.x, tank.y, tank.turretAngle, length, 0);
+
+    graphics.lineStyle(art.barrelWidth + 3, 0x0d0f0d, 1);
+    graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+    graphics.lineStyle(art.barrelWidth, tank.exposed ? 0xfff0a0 : 0x2a2f2a, 1);
+    graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+
+    const muzzle = localToWorld(tank.x, tank.y, tank.turretAngle, length - r * 0.12, 0);
+    graphics.fillStyle(0x141614, 1);
+    graphics.fillCircle(muzzle.x, muzzle.y, art.barrelWidth * 0.62);
+  }
+
+  private drawPolygon(
+    graphics: Phaser.GameObjects.Graphics,
+    x: number,
+    y: number,
+    points: Array<{ x: number; y: number }>,
+    angle: number,
+    scale: number,
+    color: number,
+    alpha: number,
+    strokeColor: number,
+    strokeAlpha: number,
+    lineWidth: number,
+  ): void {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    const halfWidth = width * 0.5;
-    const halfHeight = height * 0.5;
-    const corners = [
-      { x: -halfWidth, y: -halfHeight },
-      { x: halfWidth, y: -halfHeight },
-      { x: halfWidth, y: halfHeight },
-      { x: -halfWidth, y: halfHeight },
-    ].map((corner) => new Phaser.Math.Vector2(x + corner.x * cos - corner.y * sin, y + corner.x * sin + corner.y * cos));
+    const corners = points.map((point) => {
+      const px = point.x * scale;
+      const py = point.y * scale;
+      return new Phaser.Math.Vector2(x + px * cos - py * sin, y + px * sin + py * cos);
+    });
 
     graphics.fillStyle(color, alpha);
     graphics.fillPoints(corners, true);
-    graphics.lineStyle(2, 0x050805, 0.42);
+    graphics.lineStyle(lineWidth, strokeColor, strokeAlpha);
     graphics.strokePoints(corners, true);
+  }
+
+  private drawRotatedRect(graphics: Phaser.GameObjects.Graphics, x: number, y: number, width: number, height: number, angle: number, color: number, alpha: number): void {
+    const halfWidth = width * 0.5;
+    const halfHeight = height * 0.5;
+    this.drawPolygon(
+      graphics,
+      x,
+      y,
+      [
+        { x: -halfWidth, y: -halfHeight },
+        { x: halfWidth, y: -halfHeight },
+        { x: halfWidth, y: halfHeight },
+        { x: -halfWidth, y: halfHeight },
+      ],
+      angle,
+      1,
+      color,
+      alpha,
+      0x050805,
+      0.42,
+      2,
+    );
   }
 
   private drawExplosions(graphics: Phaser.GameObjects.Graphics): void {
