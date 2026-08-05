@@ -169,6 +169,26 @@ export class GameDirector {
     this.emit();
   }
 
+  pauseGame(): void {
+    if (this.phase !== 'playing') {
+      return;
+    }
+
+    this.phase = 'paused';
+    this.emit();
+  }
+
+  resumeGame(): void {
+    if (this.phase !== 'paused') {
+      return;
+    }
+
+    // runSerial is deliberately untouched so the scene resumes the live mission
+    // instead of treating this as a fresh deployment.
+    this.phase = 'playing';
+    this.emit();
+  }
+
   advanceToNextStage(): void {
     this.advanceToNextMission();
   }

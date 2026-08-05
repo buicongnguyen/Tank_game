@@ -1,4 +1,4 @@
-export type SessionPhase = 'menu' | 'playing' | 'intermission' | 'gameover' | 'victory';
+export type SessionPhase = 'menu' | 'playing' | 'paused' | 'intermission' | 'gameover' | 'victory';
 export type DifficultyMode = 'easy' | 'normal' | 'hard' | 'extreme';
 export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
 export type EnemyTankKind = 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';

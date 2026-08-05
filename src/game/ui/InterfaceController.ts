@@ -35,6 +35,26 @@ export class InterfaceController {
     this.playSfx = options.playSfx;
     this.sessionSnapshot = director.getSnapshot();
 
+    // delegated so the frequently re-rendered HUD markup never needs re-binding
+    this.hudRoot.addEventListener('click', (event) => {
+      const trigger = (event.target as HTMLElement | null)?.closest('[data-pause]');
+      if (trigger) {
+        this.director.pauseGame();
+      }
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' && event.key !== 'p' && event.key !== 'P') {
+        return;
+      }
+
+      if (this.sessionSnapshot.phase === 'playing') {
+        this.director.pauseGame();
+      } else if (this.sessionSnapshot.phase === 'paused') {
+        this.director.resumeGame();
+      }
+    });
+
     this.director.subscribe((snapshot) => {
       this.sessionSnapshot = snapshot;
       this.renderOverlay();
@@ -84,62 +104,50 @@ export class InterfaceController {
       },
     };
 
-    this.hudRoot.dataset.phase = hud.phase;
+    const healthPercent = Math.max(0, (tank.health / tank.maxHealth) * 100);
+    const weaponIndex = this.sessionSnapshot.unlockedWeapons.indexOf(hud.weapon.id) + 1;
+
+    // drive the HUD's own data-phase off the session so pausing hides it behind
+    // the pause panel instead of leaving a stale "live" HUD on screen
+    const sessionPhase = this.sessionSnapshot.phase;
+    this.hudRoot.dataset.phase = sessionPhase === 'paused'
+      ? 'paused'
+      : sessionPhase === 'playing' ? 'live' : 'standby';
     this.hudRoot.innerHTML = `
       <div class="hud-block hud-left tank-hud-left">
-        <div class="mission-chip">
-          <span class="chip-kicker">Tank Game: Steel Front</span>
-          <strong>${hud.missionName}</strong>
-          <span>${hud.objective}</span>
+        <div class="hud-bar hud-bar-health" role="img" aria-label="Hull integrity">
+          <span class="hud-bar-fill" style="width:${healthPercent}%"></span>
+          <span class="hud-bar-text">${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth}</span>
         </div>
-        <article class="player-card tank-card">
-          <div class="player-head">
-            <strong>Main Battle Tank</strong>
-            <span>${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth} HP</span>
-          </div>
-          <div class="meter">
-            <span style="width:${Math.max(0, (tank.health / tank.maxHealth) * 100)}%"></span>
-          </div>
-          <div class="tank-stat-grid">
-            <span>Armor ${tank.armor.toFixed(2)}x</span>
-            <span>Speed ${Math.round(tank.speed)}</span>
-            <span>Scrap ${hud.scrap}</span>
-          </div>
-        </article>
-      </div>
-      <div class="hud-block hud-right tank-hud-right">
-        <div class="status-chip">
-          <span>Mission ${hud.missionIndex}/${hud.totalMissions}</span>
-          <strong>${hud.progressText}</strong>
-          <span>Hostiles ${hud.enemyCount.alive}/${hud.enemyCount.total}</span>
+        <div class="hud-micro">
+          <span>ARM ${tank.armor.toFixed(2)}x</span>
+          <span>SPD ${Math.round(tank.speed)}</span>
+          <span>SCR ${hud.scrap}</span>
+          <span>RPR x${tank.repairCharges}</span>
         </div>
         ${hud.boss ? `
-          <div class="boss-chip">
-            <div class="boss-top">
-              <span>${hud.boss.exposed ? 'Weak Point Exposed' : 'Armor Plated'}</span>
-              <strong>${hud.boss.name}</strong>
-            </div>
-            <div class="meter boss-meter">
-              <span style="width:${Math.max(0, (hud.boss.health / hud.boss.maxHealth) * 100)}%"></span>
-            </div>
+          <div class="hud-bar hud-bar-boss ${hud.boss.exposed ? 'is-exposed' : ''}">
+            <span class="hud-bar-fill" style="width:${Math.max(0, (hud.boss.health / hud.boss.maxHealth) * 100)}%"></span>
+            <span class="hud-bar-text">${hud.boss.name}${hud.boss.exposed ? ' - Weak Point' : ''}</span>
           </div>
         ` : ''}
-        <div class="cooldown-strip">
-          <span style="--fill:${Math.round(tank.reloadPercent * 100)}%">Cannon</span>
-          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label}</span>
-          <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
-          <span>Repair x${tank.repairCharges}</span>
+      </div>
+      <div class="hud-block hud-top tank-hud-top">
+        <button type="button" class="hud-settings-button" data-pause aria-label="Pause and open mission info">
+          <span aria-hidden="true">II</span>
+        </button>
+      </div>
+      <div class="hud-block hud-right tank-hud-right">
+        <div class="hud-micro hud-micro-right">
+          <span>M ${hud.missionIndex}/${hud.totalMissions}</span>
+          <span>HOSTILES ${hud.enemyCount.alive}/${hud.enemyCount.total}</span>
+          <span>${hud.totalScore.toLocaleString()}</span>
         </div>
-        ${hud.weapon.unlockedCount > 1 ? `
-          <div class="status-chip weapon-chip">
-            <span>Weapon ${this.sessionSnapshot.unlockedWeapons.indexOf(hud.weapon.id) + 1}/${hud.weapon.unlockedCount}</span>
-            <strong>${hud.weapon.label}</strong>
-            <span>Press X to swap</span>
-          </div>
-        ` : ''}
-        <div class="score-chip">
-          <span>Total Score</span>
-          <strong>${hud.totalScore.toLocaleString()}</strong>
+        <div class="hud-progress-line">${hud.progressText}</div>
+        <div class="cooldown-strip cooldown-strip-slim">
+          <span style="--fill:${Math.round(tank.reloadPercent * 100)}%">Cannon</span>
+          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}</span>
+          <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
         </div>
       </div>
     `;
@@ -176,6 +184,11 @@ export class InterfaceController {
         const id = button.dataset.upgrade as UpgradeId;
         this.director.applyUpgrade(id);
       });
+    }
+
+    const resumeButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-resume]');
+    for (const button of resumeButtons) {
+      button.addEventListener('click', () => this.director.resumeGame());
     }
   }
 
@@ -272,6 +285,59 @@ export class InterfaceController {
 
     const mission = snapshot.currentMission;
     const nextMission = snapshot.nextMission;
+
+    if (snapshot.phase === 'paused') {
+      return `
+        <section class="overlay-card tank-overlay-card pause-card">
+          <span class="overlay-kicker">Paused - Mission ${snapshot.currentMissionIndex + 1}/${snapshot.missions.length}</span>
+          <h1>${mission.codename}</h1>
+          <div class="pause-grid">
+            <div class="pause-panel">
+              <h3>Objective</h3>
+              <p>${mission.objective}</p>
+              <p>${mission.briefing}</p>
+            </div>
+            <div class="pause-panel">
+              <h3>Controls</h3>
+              <ul class="pause-list">
+                <li><strong>WASD</strong> drive</li>
+                <li><strong>Mouse</strong> aim turret</li>
+                <li><strong>Space</strong> cannon</li>
+                <li><strong>E</strong> ${WEAPONS[snapshot.selectedWeapon].label}</li>
+                <li><strong>X</strong> swap weapon</li>
+                <li><strong>Q</strong> artillery strike</li>
+                <li><strong>R</strong> field repair</li>
+                <li><strong>Esc / P</strong> pause</li>
+              </ul>
+            </div>
+            <div class="pause-panel">
+              <h3>Arsenal (${snapshot.unlockedWeapons.length})</h3>
+              <ul class="pause-list">
+                ${snapshot.unlockedWeapons.map((id) => `
+                  <li class="${id === snapshot.selectedWeapon ? 'is-current' : ''}">
+                    <strong>${WEAPONS[id].label}</strong> ${WEAPONS[id].description}
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+            <div class="pause-panel">
+              <h3>Tank</h3>
+              <ul class="pause-list">
+                <li><strong>Hull</strong> ${snapshot.tankStats.maxHealth} HP</li>
+                <li><strong>Armor</strong> ${snapshot.tankStats.armor.toFixed(2)}x</li>
+                <li><strong>Engine</strong> ${Math.round(snapshot.tankStats.engine)}</li>
+                <li><strong>Score</strong> ${snapshot.totalScore.toLocaleString()}</li>
+                <li><strong>Scrap</strong> ${snapshot.scrap}</li>
+              </ul>
+              <p>Angle your hull at threats - rear hits hurt far more than front hits.</p>
+            </div>
+          </div>
+          <div class="overlay-actions">
+            <button type="button" class="action-button primary" data-resume>Resume Mission</button>
+          </div>
+        </section>
+      `;
+    }
 
     if (snapshot.phase === 'menu') {
       return `

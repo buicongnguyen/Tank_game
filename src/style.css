@@ -537,7 +537,8 @@ a {
   top: 18px;
   left: 18px;
   flex-direction: column;
-  max-width: min(340px, calc(100% - 36px));
+  gap: 6px;
+  max-width: min(240px, calc(100% - 36px));
 }
 
 .hud-right {
@@ -545,7 +546,8 @@ a {
   right: 18px;
   flex-direction: column;
   align-items: stretch;
-  width: min(320px, calc(100% - 36px));
+  gap: 6px;
+  width: min(260px, calc(100% - 36px));
 }
 
 .mission-chip,
@@ -787,6 +789,171 @@ a {
 
 .boss-meter span {
   background: linear-gradient(90deg, #ff855e, #ffd0a6);
+}
+
+/* ---- Slim in-battle HUD -------------------------------------------------- */
+/* Kept intentionally thin so the playfield stays readable; the verbose mission
+   text lives in the pause panel instead of on top of the battle. */
+
+.hud-bar {
+  position: relative;
+  height: 16px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(8, 10, 9, 0.66);
+  border: 1px solid rgba(255, 242, 196, 0.22);
+  backdrop-filter: blur(6px);
+}
+
+.hud-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #a2db7c, #d8f0a8);
+  transition: width 120ms linear;
+}
+
+.hud-bar-text {
+  position: relative;
+  display: block;
+  line-height: 16px;
+  padding: 0 8px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #0b1209;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-bar-boss .hud-bar-fill {
+  background: linear-gradient(90deg, #ff855e, #ffd0a6);
+}
+
+.hud-bar-boss.is-exposed {
+  border-color: rgba(255, 240, 160, 0.85);
+  box-shadow: 0 0 12px rgba(255, 240, 160, 0.4);
+}
+
+.hud-micro {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.hud-micro-right {
+  justify-content: flex-end;
+}
+
+.hud-progress-line {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--paper);
+  text-align: right;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cooldown-strip-slim {
+  gap: 4px;
+}
+
+.cooldown-strip-slim span {
+  padding: 2px 6px;
+  font-size: 0.58rem;
+}
+
+.hud-top {
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hud-settings-button {
+  pointer-events: auto;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 242, 196, 0.3);
+  background: rgba(8, 10, 9, 0.72);
+  color: var(--paper);
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(6px);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.hud-settings-button:hover,
+.hud-settings-button:focus-visible {
+  border-color: rgba(255, 242, 196, 0.7);
+  background: rgba(20, 24, 20, 0.9);
+  outline: none;
+}
+
+/* ---- Pause panel --------------------------------------------------------- */
+
+.pause-card {
+  width: min(760px, 100%);
+}
+
+.pause-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.pause-panel {
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 242, 196, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pause-panel h3 {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--accent, #f0c15a);
+}
+
+.pause-panel p {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+}
+
+.pause-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.pause-list strong {
+  color: var(--paper);
+}
+
+.pause-list .is-current strong {
+  color: var(--accent, #f0c15a);
 }
 
 .overlay-card {
@@ -1572,5 +1739,68 @@ a {
 
   .tank-aim-stick .touch-stick-label {
     display: none;
+  }
+}
+
+/* ---- Slim HUD layout overrides ------------------------------------------ */
+/* These come last so they win over the older chip-based HUD layout rules. */
+
+@media (min-width: 901px) {
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .tank-hud-left,
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .tank-hud-right {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .tank-hud-left {
+    max-width: min(30vw, 260px);
+  }
+
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .tank-hud-right {
+    width: min(30vw, 280px);
+    max-width: min(30vw, 280px);
+  }
+
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .hud-bar-text,
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .hud-micro,
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .hud-progress-line {
+    display: block;
+  }
+
+  body[data-touch-mode='false'] .hud-root[data-phase='live'] .hud-micro {
+    display: flex;
+  }
+}
+
+@media (max-width: 900px), (hover: none), (pointer: coarse) {
+  .hud-root[data-phase='live'] .tank-hud-left,
+  .hud-root[data-phase='live'] .tank-hud-right {
+    width: min(42vw, 210px);
+  }
+
+  .hud-bar {
+    height: 14px;
+  }
+
+  .hud-bar-text {
+    line-height: 14px;
+    font-size: 0.56rem;
+  }
+
+  .hud-micro {
+    font-size: 0.54rem;
+    gap: 3px 7px;
+  }
+
+  .hud-progress-line {
+    font-size: 0.6rem;
+  }
+
+  .hud-top {
+    top: max(8px, env(safe-area-inset-top, 0px));
+  }
+
+  .pause-grid {
+    grid-template-columns: 1fr;
   }
 }
