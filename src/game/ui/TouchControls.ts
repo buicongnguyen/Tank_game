@@ -2,10 +2,10 @@ import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad, type GameAction } from '../core/VirtualGamepad';
 import type { HudSnapshot, SessionPhase } from '../types';
 
-type TouchButtonAction = Extract<GameAction, 'fire' | 'secondary' | 'special' | 'repair'>;
+type TouchButtonAction = Extract<GameAction, 'fire' | 'secondary' | 'special' | 'repair' | 'switchWeapon'>;
 
 function isTouchButtonAction(value: string | undefined): value is TouchButtonAction {
-  return value === 'fire' || value === 'secondary' || value === 'special' || value === 'repair';
+  return value === 'fire' || value === 'secondary' || value === 'special' || value === 'repair' || value === 'switchWeapon';
 }
 
 export class TouchControlsOverlay {
@@ -17,6 +17,8 @@ export class TouchControlsOverlay {
   private readonly aimKnob: HTMLElement;
   private readonly specialButton: HTMLButtonElement | null;
   private readonly repairButton: HTMLButtonElement | null;
+  private readonly secondaryButton: HTMLButtonElement | null;
+  private readonly swapButton: HTMLButtonElement | null;
   private readonly buttonResetters: Array<() => void> = [];
   private readonly touchQuery = window.matchMedia('(hover: none), (pointer: coarse)');
   private currentPhase: SessionPhase = 'menu';
@@ -49,7 +51,7 @@ export class TouchControlsOverlay {
               <span class="key-hint">Space</span>
             </button>
             <button type="button" class="touch-button" data-action="secondary">
-              <strong>Rocket</strong>
+              <strong data-weapon-label>Rocket</strong>
               <span class="key-hint">E</span>
             </button>
             <button type="button" class="touch-button touch-button-special" data-action="special">
@@ -61,6 +63,11 @@ export class TouchControlsOverlay {
               <strong>Repair</strong>
               <span class="key-hint">R</span>
               <span class="action-detail" data-repair-detail></span>
+            </button>
+            <button type="button" class="touch-button" data-action="switchWeapon" hidden data-swap-button>
+              <strong>Swap</strong>
+              <span class="key-hint">X</span>
+              <span class="action-detail" data-swap-detail></span>
             </button>
           </div>
         </div>
@@ -81,6 +88,8 @@ export class TouchControlsOverlay {
     this.aimKnob = aimKnob;
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
     this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
+    this.secondaryButton = this.root.querySelector<HTMLButtonElement>('button[data-action="secondary"]');
+    this.swapButton = this.root.querySelector<HTMLButtonElement>('button[data-action="switchWeapon"]');
 
     this.bindStick(this.driveZone, this.driveKnob, 'drive');
     this.bindStick(this.aimZone, this.aimKnob, 'aim');
@@ -107,6 +116,23 @@ export class TouchControlsOverlay {
     if (this.repairButton && repairDetail) {
       repairDetail.textContent = `x${snapshot.tank.repairCharges}`;
       this.repairButton.dataset.cooldown = snapshot.tank.repairCharges > 0 ? 'false' : 'true';
+    }
+
+    const weaponLabel = this.secondaryButton?.querySelector<HTMLElement>('[data-weapon-label]');
+    if (weaponLabel) {
+      weaponLabel.textContent = snapshot.weapon.label;
+    }
+    if (this.secondaryButton) {
+      this.secondaryButton.dataset.cooldown = snapshot.tank.secondaryPercent >= 1 ? 'false' : 'true';
+    }
+
+    // the swap button only earns its space once a second weapon exists
+    if (this.swapButton) {
+      const swapDetail = this.swapButton.querySelector<HTMLElement>('[data-swap-detail]');
+      this.swapButton.hidden = snapshot.weapon.unlockedCount <= 1;
+      if (swapDetail) {
+        swapDetail.textContent = `x${snapshot.weapon.unlockedCount}`;
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 import { STAGES } from '../data/stages';
-import type { DifficultyMode, MissionConfig, SessionSnapshot, TankStats, UpgradeId, UpgradeOption } from '../types';
+import { weaponsUnlockedAt, weaponUnlockedAtMission } from '../data/weapons';
+import type { DifficultyMode, MissionConfig, SessionSnapshot, TankStats, UpgradeId, UpgradeOption, WeaponId } from '../types';
 
 type Listener = (snapshot: SessionSnapshot) => void;
 
@@ -97,6 +98,7 @@ export class GameDirector {
   private failureReason: string | undefined;
   private tankStats = cloneStats(BASE_STATS);
   private pendingUpgrades: UpgradeOption[] = this.getUpgradeOptions(0);
+  private selectedWeapon: WeaponId = 'rocket';
 
   constructor(missions: MissionConfig[] = STAGES) {
     this.missions = missions;
@@ -131,7 +133,25 @@ export class GameDirector {
       missions: this.missions,
       tankStats: cloneStats(this.tankStats),
       pendingUpgrades: [...this.pendingUpgrades],
+      unlockedWeapons: this.getUnlockedWeapons(),
+      selectedWeapon: this.selectedWeapon,
     };
+  }
+
+  getUnlockedWeapons(): WeaponId[] {
+    return weaponsUnlockedAt(this.currentMissionIndex);
+  }
+
+  cycleWeapon(direction: 1 | -1 = 1): void {
+    const unlocked = this.getUnlockedWeapons();
+    if (unlocked.length <= 1) {
+      return;
+    }
+
+    const current = unlocked.indexOf(this.selectedWeapon);
+    const next = (current + direction + unlocked.length) % unlocked.length;
+    this.selectedWeapon = unlocked[next];
+    this.emit();
   }
 
   startCampaign(_playerCount: 1 | 2 = 1, difficulty: DifficultyMode = this.difficulty): void {
@@ -144,6 +164,7 @@ export class GameDirector {
     this.completedMissions = 0;
     this.tankStats = applyDifficulty(BASE_STATS, difficulty);
     this.pendingUpgrades = this.getUpgradeOptions(0);
+    this.selectedWeapon = 'rocket';
     this.runSerial += 1;
     this.emit();
   }
@@ -163,6 +184,13 @@ export class GameDirector {
     this.phase = 'playing';
     this.failureReason = undefined;
     this.pendingUpgrades = this.getUpgradeOptions(this.currentMissionIndex);
+
+    // auto-equip a weapon the moment it unlocks so the new toy is in hand
+    const unlocked = weaponUnlockedAtMission(this.currentMissionIndex);
+    if (unlocked) {
+      this.selectedWeapon = unlocked;
+    }
+
     this.runSerial += 1;
     this.emit();
   }

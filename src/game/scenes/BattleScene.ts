@@ -3,6 +3,7 @@ import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
 import { darkenColor, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
+import { WEAPONS, type WeaponSpec } from '../data/weapons';
 import type {
   BossStatus,
   CaptureZoneConfig,
@@ -42,7 +43,7 @@ interface TankRuntime {
   trackPhase: number;
 }
 
-type ProjectileKind = 'shell' | 'rocket';
+type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail';
 
 interface ProjectileRuntime {
   id: number;
@@ -60,6 +61,13 @@ interface ProjectileRuntime {
   radius: number;
   ttl: number;
   color: number;
+  pierceRemaining: number;
+  homingStrength: number;
+  /** Lobs over cover and detonates at the target point instead of on contact. */
+  arcing: boolean;
+  targetX: number;
+  targetY: number;
+  hitTankIds: string[];
 }
 
 interface CoverRuntime {
@@ -320,6 +328,7 @@ export class BattleScene extends Phaser.Scene {
   private missionResolved = false;
   private projectileSerial = 1;
   private secondaryTimer = 0;
+  private secondaryCooldownMax = 1;
   private specialTimer = 0;
   private repairCharges = 0;
   private convoyEscapeCountdownMs = 0;
@@ -351,6 +360,7 @@ export class BattleScene extends Phaser.Scene {
       secondary: Phaser.Input.Keyboard.KeyCodes.E,
       special: Phaser.Input.Keyboard.KeyCodes.Q,
       repair: Phaser.Input.Keyboard.KeyCodes.R,
+      switchWeapon: Phaser.Input.Keyboard.KeyCodes.X,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -562,10 +572,15 @@ export class BattleScene extends Phaser.Scene {
       this.fireProjectile(player, 'player', stats.shellDamage, stats.shellSpeed, 64, 0xf8d46d);
     }
 
+    if (this.wantsSwitchWeapon()) {
+      this.director.cycleWeapon();
+    }
+
     if (this.wantsSecondary() && this.secondaryTimer <= 0) {
-      this.secondaryTimer = stats.secondaryCooldownMs;
-      this.fireProjectile(player, 'player', stats.shellDamage * 0.72, stats.shellSpeed * 1.15, 46, 0x95e7ff, 'rocket', true);
-      this.addFloatingText(player.x, player.y - 48, 'Rocket', 0x95e7ff);
+      const weapon = this.getSelectedWeapon();
+      this.secondaryCooldownMax = stats.secondaryCooldownMs * weapon.cooldownScale;
+      this.secondaryTimer = this.secondaryCooldownMax;
+      this.fireSelectedWeapon(player, stats, weapon);
     }
 
     if (this.wantsSpecial() && this.specialTimer <= 0) {
@@ -620,6 +635,15 @@ export class BattleScene extends Phaser.Scene {
   private wantsRepair(): boolean {
     const keys = this.keys;
     return Boolean((keys?.repair && Phaser.Input.Keyboard.JustDown(keys.repair)) || this.gamepad.consumeJustPressed(1, 'repair'));
+  }
+
+  private wantsSwitchWeapon(): boolean {
+    const keys = this.keys;
+    return Boolean((keys?.switchWeapon && Phaser.Input.Keyboard.JustDown(keys.switchWeapon)) || this.gamepad.consumeJustPressed(1, 'switchWeapon'));
+  }
+
+  private getSelectedWeapon(): WeaponSpec {
+    return WEAPONS[this.snapshot?.selectedWeapon ?? 'rocket'];
   }
 
   private updateEnemies(player: TankRuntime, mission: MissionConfig, difficulty: SessionSnapshot['difficulty'], dt: number, delta: number): void {
@@ -742,11 +766,27 @@ export class BattleScene extends Phaser.Scene {
 
   private updateProjectiles(dt: number): void {
     for (const projectile of this.projectiles) {
+      if (projectile.homingStrength > 0) {
+        this.steerHomingProjectile(projectile, dt);
+      }
+
       projectile.previousX = projectile.x;
       projectile.previousY = projectile.y;
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.ttl -= dt * 1000;
+
+      // arcing shells fly over cover and armor, detonating only at the aim point
+      if (projectile.arcing) {
+        const reachedTarget = Phaser.Math.Distance.Between(projectile.x, projectile.y, projectile.targetX, projectile.targetY) <= 18;
+        const overshot = (projectile.x - projectile.targetX) * projectile.vx + (projectile.y - projectile.targetY) * projectile.vy > 0;
+        if (reachedTarget || overshot || projectile.ttl <= 0) {
+          this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
+          this.damageArea(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
+          projectile.ttl = -1;
+        }
+        continue;
+      }
 
       if (this.handleProjectileCoverHit(projectile)) {
         projectile.ttl = -1;
@@ -754,10 +794,17 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (projectile.team === 'player') {
-        const target = this.enemies.find((enemy) => enemy.alive && Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y) <= enemy.radius + projectile.radius);
+        const target = this.enemies.find((enemy) => enemy.alive
+          && !projectile.hitTankIds.includes(enemy.id)
+          && Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y) <= enemy.radius + projectile.radius);
         if (target) {
           this.damageTank(target, projectile.damage, projectile, projectile.blastRadius);
-          projectile.ttl = -1;
+          if (projectile.pierceRemaining > 0) {
+            projectile.pierceRemaining -= 1;
+            projectile.hitTankIds.push(target.id);
+          } else {
+            projectile.ttl = -1;
+          }
         }
       } else if (this.player && Phaser.Math.Distance.Between(projectile.x, projectile.y, this.player.x, this.player.y) <= this.player.radius + projectile.radius) {
         this.damageTank(this.player, projectile.damage, projectile, projectile.blastRadius);
@@ -784,6 +831,27 @@ export class BattleScene extends Phaser.Scene {
       }
       return projectile.ttl > 0 && inBounds;
     });
+  }
+
+  private steerHomingProjectile(projectile: ProjectileRuntime, dt: number): void {
+    const candidates = projectile.team === 'player'
+      ? this.enemies.filter((enemy) => enemy.alive)
+      : this.player ? [this.player] : [];
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const target = candidates.reduce((best, candidate) => {
+      const bestDistance = Phaser.Math.Distance.Between(projectile.x, projectile.y, best.x, best.y);
+      const distance = Phaser.Math.Distance.Between(projectile.x, projectile.y, candidate.x, candidate.y);
+      return distance < bestDistance ? candidate : best;
+    }, candidates[0]);
+
+    const speed = Math.hypot(projectile.vx, projectile.vy);
+    const desired = Math.atan2(target.y - projectile.y, target.x - projectile.x);
+    const steered = approachAngle(Math.atan2(projectile.vy, projectile.vx), desired, projectile.homingStrength * dt);
+    projectile.vx = Math.cos(steered) * speed;
+    projectile.vy = Math.sin(steered) * speed;
   }
 
   private handleProjectileCoverHit(projectile: ProjectileRuntime): boolean {
@@ -987,19 +1055,28 @@ export class BattleScene extends Phaser.Scene {
     color: number,
     kind: ProjectileKind = 'shell',
     ignoreReload = false,
+    options: {
+      angleOffset?: number;
+      ttlMs?: number;
+      pierce?: number;
+      homingStrength?: number;
+      arcing?: boolean;
+      target?: { x: number; y: number };
+    } = {},
   ): void {
     if (!source.alive || (!ignoreReload && source.reloadTimer > 0)) {
       return;
     }
 
+    const angle = source.turretAngle + (options.angleOffset ?? 0);
     const muzzleDistance = source.radius + 20;
-    const x = source.x + Math.cos(source.turretAngle) * muzzleDistance;
-    const y = source.y + Math.sin(source.turretAngle) * muzzleDistance;
+    const x = source.x + Math.cos(angle) * muzzleDistance;
+    const y = source.y + Math.sin(angle) * muzzleDistance;
     if (!ignoreReload) {
       source.reloadTimer = source.reloadMs;
     }
-    source.vx -= Math.cos(source.turretAngle) * (team === 'player' ? 34 : 9);
-    source.vy -= Math.sin(source.turretAngle) * (team === 'player' ? 34 : 9);
+    source.vx -= Math.cos(angle) * (team === 'player' ? 34 : 9);
+    source.vy -= Math.sin(angle) * (team === 'player' ? 34 : 9);
     this.projectiles.push({
       id: this.projectileSerial,
       team,
@@ -1009,16 +1086,54 @@ export class BattleScene extends Phaser.Scene {
       y,
       previousX: x,
       previousY: y,
-      vx: Math.cos(source.turretAngle) * shellSpeed,
-      vy: Math.sin(source.turretAngle) * shellSpeed,
+      vx: Math.cos(angle) * shellSpeed,
+      vy: Math.sin(angle) * shellSpeed,
       damage,
       blastRadius,
       radius: team === 'player' ? 10 : 8,
-      ttl: 1800,
+      ttl: options.ttlMs ?? 1800,
       color,
+      pierceRemaining: options.pierce ?? 0,
+      homingStrength: options.homingStrength ?? 0,
+      arcing: options.arcing ?? false,
+      targetX: options.target?.x ?? x,
+      targetY: options.target?.y ?? y,
+      hitTankIds: [],
     });
     this.projectileSerial += 1;
-    this.playSpatialSfx(kind === 'rocket' ? 'rocket' : 'cannon', source.x, source.y, team === 'player' ? 1 : 0.42);
+    this.playSpatialSfx(kind === 'shell' ? 'cannon' : 'rocket', source.x, source.y, team === 'player' ? 1 : 0.42);
+  }
+
+  private fireSelectedWeapon(player: TankRuntime, stats: TankStats, weapon: WeaponSpec): void {
+    const damage = stats.shellDamage * weapon.damageScale;
+    const speed = stats.shellSpeed * weapon.speedScale;
+    const aim = { ...this.lastPointerWorld };
+
+    for (let index = 0; index < weapon.shots; index += 1) {
+      const spreadStep = weapon.shots > 1 ? weapon.spread * (index / (weapon.shots - 1) - 0.5) : 0;
+      const launch = (): void => {
+        if (!player.alive) {
+          return;
+        }
+
+        this.fireProjectile(player, 'player', damage, speed, weapon.blastRadius, weapon.color, weapon.style, true, {
+          angleOffset: spreadStep,
+          ttlMs: weapon.ttlMs,
+          pierce: weapon.pierce,
+          homingStrength: weapon.homingStrength,
+          arcing: weapon.arcing,
+          target: aim,
+        });
+      };
+
+      if (weapon.burstDelayMs > 0 && index > 0) {
+        this.time.delayedCall(weapon.burstDelayMs * index, launch);
+      } else {
+        launch();
+      }
+    }
+
+    this.addFloatingText(player.x, player.y - 48, weapon.label, weapon.color);
   }
 
   private damageTank(target: TankRuntime, damage: number, projectile: ProjectileRuntime, blastRadius: number): void {
@@ -1085,6 +1200,12 @@ export class BattleScene extends Phaser.Scene {
         radius: 1,
         ttl: 0,
         color: 0xffaa55,
+        pierceRemaining: 0,
+        homingStrength: 0,
+        arcing: false,
+        targetX: x,
+        targetY: y,
+        hitTankIds: [],
       };
       this.damageTank(target, damage * falloff, fakeProjectile, 0);
     }
@@ -1248,9 +1369,14 @@ export class BattleScene extends Phaser.Scene {
         armor: snapshot.tankStats.armor,
         speed: Math.hypot(player.vx, player.vy),
         reloadPercent: 1 - clamp(player.reloadTimer / player.reloadMs, 0, 1),
-        secondaryPercent: 1 - clamp(this.secondaryTimer / snapshot.tankStats.secondaryCooldownMs, 0, 1),
+        secondaryPercent: 1 - clamp(this.secondaryTimer / this.secondaryCooldownMax, 0, 1),
         specialPercent: 1 - clamp(this.specialTimer / snapshot.tankStats.specialCooldownMs, 0, 1),
         repairCharges: this.repairCharges,
+      },
+      weapon: {
+        id: snapshot.selectedWeapon,
+        label: WEAPONS[snapshot.selectedWeapon].label,
+        unlockedCount: snapshot.unlockedWeapons.length,
       },
       boss: bossStatus,
     };
@@ -1580,7 +1706,11 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
-      if (projectile.kind === 'rocket') {
+      if (projectile.kind === 'mortar') {
+        this.drawMortarShell(graphics, projectile);
+      } else if (projectile.kind === 'rail') {
+        this.drawRailSlug(graphics, projectile);
+      } else if (projectile.kind === 'rocket') {
         this.drawRocketProjectile(graphics, projectile);
       } else if (projectile.sourceKind === 'boss') {
         this.drawBossShell(graphics, projectile);
@@ -1588,6 +1718,64 @@ export class BattleScene extends Phaser.Scene {
         this.drawShell(graphics, projectile);
       }
     }
+  }
+
+  private drawMortarShell(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+
+    // target marker on the ground so the player can read where it will land
+    graphics.lineStyle(2, projectile.color, 0.5);
+    graphics.strokeCircle(projectile.targetX, projectile.targetY, projectile.blastRadius * 0.5);
+    graphics.lineStyle(1.5, projectile.color, 0.32);
+    graphics.strokeCircle(projectile.targetX, projectile.targetY, projectile.blastRadius);
+
+    // shadow beneath the arc reads as height off the ground
+    graphics.fillStyle(0x0b0c10, 0.3);
+    graphics.fillEllipse(projectile.x, projectile.y + 16, 16, 7);
+
+    this.drawTrail(graphics, projectile, angle, 40, 7);
+
+    const points = [
+      { x: 13, y: 0 },
+      { x: 5, y: -8 },
+      { x: -11, y: -8 },
+      { x: -11, y: 8 },
+      { x: 5, y: 8 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x4a3410, 0.7, 1.5);
+
+    for (const side of [-1, 1]) {
+      const finBase = localToWorld(projectile.x, projectile.y, angle, -11, side * 4);
+      const finTip = localToWorld(projectile.x, projectile.y, angle, -18, side * 10);
+      graphics.lineStyle(2, 0x4a3410, 0.85);
+      graphics.lineBetween(finBase.x, finBase.y, finTip.x, finTip.y);
+    }
+  }
+
+  private drawRailSlug(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+
+    // long ionized trail sells the hypervelocity
+    this.drawTrail(graphics, projectile, angle, 200, 9);
+    const tail = localToWorld(projectile.x, projectile.y, angle, -120, 0);
+    graphics.lineStyle(2, 0xffffff, 0.5);
+    graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+
+    graphics.fillStyle(projectile.color, 0.22);
+    graphics.fillCircle(projectile.x, projectile.y, 14);
+
+    const points = [
+      { x: 20, y: 0 },
+      { x: 8, y: -5 },
+      { x: -14, y: -4 },
+      { x: -14, y: 4 },
+      { x: 8, y: 5 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0xffffff, 0.8, 1.5);
+
+    const nose = localToWorld(projectile.x, projectile.y, angle, 12, 0);
+    graphics.fillStyle(0xffffff, 0.95);
+    graphics.fillCircle(nose.x, nose.y, 3.5);
   }
 
   private drawTrail(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime, angle: number, length: number, width: number, color = projectile.color): void {

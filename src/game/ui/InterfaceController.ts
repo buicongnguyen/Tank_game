@@ -1,4 +1,5 @@
 import { GameDirector } from '../core/GameDirector';
+import { WEAPONS } from '../data/weapons';
 import type { TankSfxCue } from '../audio/BattleMusic';
 import type { DifficultyMode, HudSnapshot, SessionSnapshot, UpgradeId } from '../types';
 
@@ -65,8 +66,8 @@ export class InterfaceController {
       specialPercent: 1,
       repairCharges: this.sessionSnapshot.tankStats.repairCharges,
     };
-    const hud = this.hudSnapshot ?? {
-      phase: 'standby' as const,
+    const hud: HudSnapshot = this.hudSnapshot ?? {
+      phase: 'standby',
       missionName: mission.codename,
       missionIndex: this.sessionSnapshot.currentMissionIndex + 1,
       totalMissions: this.sessionSnapshot.missions.length,
@@ -76,6 +77,11 @@ export class InterfaceController {
       totalScore: this.sessionSnapshot.totalScore,
       scrap: this.sessionSnapshot.scrap,
       tank,
+      weapon: {
+        id: this.sessionSnapshot.selectedWeapon,
+        label: WEAPONS[this.sessionSnapshot.selectedWeapon].label,
+        unlockedCount: this.sessionSnapshot.unlockedWeapons.length,
+      },
     };
 
     this.hudRoot.dataset.phase = hud.phase;
@@ -120,10 +126,17 @@ export class InterfaceController {
         ` : ''}
         <div class="cooldown-strip">
           <span style="--fill:${Math.round(tank.reloadPercent * 100)}%">Cannon</span>
-          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">Rocket</span>
+          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label}</span>
           <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
           <span>Repair x${tank.repairCharges}</span>
         </div>
+        ${hud.weapon.unlockedCount > 1 ? `
+          <div class="status-chip weapon-chip">
+            <span>Weapon ${this.sessionSnapshot.unlockedWeapons.indexOf(hud.weapon.id) + 1}/${hud.weapon.unlockedCount}</span>
+            <strong>${hud.weapon.label}</strong>
+            <span>Press X to swap</span>
+          </div>
+        ` : ''}
         <div class="score-chip">
           <span>Total Score</span>
           <strong>${hud.totalScore.toLocaleString()}</strong>
@@ -209,8 +222,8 @@ export class InterfaceController {
         <span class="intel-kicker">Controls</span>
         <h3>Battle Tank Inputs</h3>
         <ul>
-          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space fires, E launches rockets, Q calls artillery, R repairs.</li>
-          <li><strong>Mobile</strong> Left stick drives, right stick aims, buttons fire cannon, rockets, artillery, and repair.</li>
+          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space fires, E fires the sidearm, X swaps it, Q calls artillery, R repairs.</li>
+          <li><strong>Mobile</strong> Left stick drives, right stick aims, buttons fire cannon, sidearm, swap, artillery, and repair.</li>
           <li><strong>Armor</strong> Face threats with the hull. Rear hits hurt much more than front hits.</li>
         </ul>
       </article>
@@ -220,6 +233,21 @@ export class InterfaceController {
         <ul>
           <li>Assault, defense, escort, capture, and boss missions are all represented in the campaign.</li>
           <li>Repair pads, mines, fuel barrels, concrete, and crates make the battlefield matter.</li>
+        </ul>
+      </article>
+      <article class="intel-card">
+        <span class="intel-kicker">Arsenal</span>
+        <h3>Weapons Unlock As You Advance</h3>
+        <ul>
+          ${snapshot.missions.map((mission, index) => {
+            const weapon = Object.values(WEAPONS).find((entry) => entry.unlockAtMissionIndex === index);
+            if (!weapon || index === 0) {
+              return '';
+            }
+            const owned = index <= snapshot.currentMissionIndex;
+            return `<li class="${owned ? 'is-current' : ''}"><strong>${weapon.label}</strong> - ${weapon.description} <em>(${mission.codename})</em></li>`;
+          }).join('')}
+          <li><strong>Rocket</strong> - ${WEAPONS.rocket.description} <em>(issued at deployment)</em></li>
         </ul>
       </article>
       <article class="intel-card">
@@ -267,6 +295,9 @@ export class InterfaceController {
     }
 
     if (snapshot.phase === 'intermission') {
+      const incomingWeapon = Object.values(WEAPONS).find(
+        (weapon) => weapon.unlockAtMissionIndex === snapshot.currentMissionIndex + 1,
+      );
       return `
         <section class="overlay-card tank-overlay-card">
           <span class="overlay-kicker">Mission Clear</span>
@@ -275,6 +306,12 @@ export class InterfaceController {
             Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
             Scrap: <strong>${snapshot.scrap}</strong>. Pick one upgrade before the next mission.
           </p>
+          ${incomingWeapon ? `
+            <p class="weapon-unlock-note">
+              New weapon fitted for the next mission: <strong>${incomingWeapon.label}</strong> - ${incomingWeapon.description}
+              Press <strong>X</strong> in battle to swap between weapons.
+            </p>
+          ` : ''}
           <div class="upgrade-grid">
             ${snapshot.pendingUpgrades.map((upgrade) => `
               <button type="button" class="upgrade-card" data-upgrade="${upgrade.id}">

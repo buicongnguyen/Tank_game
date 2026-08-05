@@ -637,6 +637,18 @@ a {
   font-size: 0.86rem;
 }
 
+.weapon-chip strong {
+  color: var(--accent, #f0c15a);
+}
+
+.weapon-unlock-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(142, 240, 192, 0.28);
+  border-radius: 10px;
+  background: rgba(142, 240, 192, 0.08);
+  font-size: 0.9rem;
+}
+
 .ammo-strip {
   display: flex;
   flex-wrap: wrap;

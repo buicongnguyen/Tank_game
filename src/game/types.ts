@@ -4,6 +4,7 @@ export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
 export type EnemyTankKind = 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
 export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
+export type WeaponId = 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing';
 
 export interface StagePalette {
   sky: number;
@@ -129,6 +130,11 @@ export interface HudSnapshot {
   totalScore: number;
   scrap: number;
   tank: TankHudStatus;
+  weapon: {
+    id: WeaponId;
+    label: string;
+    unlockedCount: number;
+  };
   boss?: BossStatus;
 }
 
@@ -146,4 +152,6 @@ export interface SessionSnapshot {
   missions: MissionConfig[];
   tankStats: TankStats;
   pendingUpgrades: UpgradeOption[];
+  unlockedWeapons: WeaponId[];
+  selectedWeapon: WeaponId;
 }

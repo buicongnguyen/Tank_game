@@ -1,4 +1,4 @@
-export type GameAction = 'fire' | 'secondary' | 'special' | 'repair' | 'up' | 'down' | 'left' | 'right';
+export type GameAction = 'fire' | 'secondary' | 'special' | 'repair' | 'switchWeapon' | 'up' | 'down' | 'left' | 'right';
 
 export interface InputAxis {
   x: number;
@@ -10,7 +10,7 @@ interface ActionState {
   justPressed: boolean;
 }
 
-const ALL_ACTIONS: GameAction[] = ['fire', 'secondary', 'special', 'repair', 'up', 'down', 'left', 'right'];
+const ALL_ACTIONS: GameAction[] = ['fire', 'secondary', 'special', 'repair', 'switchWeapon', 'up', 'down', 'left', 'right'];
 
 function createActionStates(): Record<GameAction, ActionState> {
   return {
@@ -18,6 +18,7 @@ function createActionStates(): Record<GameAction, ActionState> {
     secondary: { down: false, justPressed: false },
     special: { down: false, justPressed: false },
     repair: { down: false, justPressed: false },
+    switchWeapon: { down: false, justPressed: false },
     up: { down: false, justPressed: false },
     down: { down: false, justPressed: false },
     left: { down: false, justPressed: false },
