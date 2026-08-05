@@ -1804,3 +1804,260 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Mobile touch controls, rebuilt around dynamic (floating) sticks.
+
+   The old layout pinned a small aim pad between the drive stick and a 2x2
+   button grid, so aiming was cramped and the action buttons crowded the fire
+   button. Now each thumb owns half the screen: the stick ring is drawn
+   wherever the thumb lands, pushing the aim stick also fires, and the action
+   buttons are small labelled circles tucked into the corner.
+   ========================================================================== */
+
+.touch-zone {
+  position: absolute;
+  top: 26%;
+  bottom: 0;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.touch-zone-drive {
+  left: 0;
+  width: 46%;
+}
+
+.touch-zone-aim {
+  right: 0;
+  width: 54%;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-zone {
+  pointer-events: auto;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-stick-shell {
+  position: absolute;
+  left: var(--origin-x, 50%);
+  top: var(--origin-y, 60%);
+  transform: translate(-50%, -50%);
+  width: 148px;
+  height: 148px;
+  margin: 0;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+  pointer-events: none;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-stick-shell[data-engaged='true'] {
+  opacity: 1;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-stick-knob {
+  width: 62px;
+  height: 62px;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-stick-label,
+.touch-controls-root[data-mode='touch'] .touch-stick-keys {
+  display: none;
+}
+
+.touch-zone-hint {
+  position: absolute;
+  right: 18px;
+  bottom: 8px;
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.5;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-zone-hint {
+  display: none;
+}
+
+/* ---- Action cluster ------------------------------------------------------ */
+
+.touch-actions {
+  position: absolute;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.touch-action-mini {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 10px 12px;
+  pointer-events: none;
+}
+
+.touch-controls-root .touch-button-mini {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.touch-controls-root .touch-button-fire {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+
+.touch-button svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  color: var(--paper);
+  pointer-events: none;
+}
+
+.touch-button-fire svg {
+  width: 32px;
+  height: 32px;
+}
+
+.touch-button-repair {
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(162, 219, 124, 0.26), rgba(24, 70, 32, 0.76));
+  border-color: rgba(162, 219, 124, 0.3);
+}
+
+.action-caption {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 2px);
+  transform: translateX(-50%);
+  font-size: 0.44rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.touch-button[data-cooldown='true'] svg {
+  opacity: 0.45;
+}
+
+/* ---- Desktop keeps a fixed on-screen reference pad ----------------------- */
+
+.touch-controls-root[data-mode='desktop'] .touch-zone {
+  pointer-events: none;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-stick-shell {
+  position: absolute;
+  left: auto;
+  top: auto;
+  bottom: 16px;
+  transform: none;
+  width: 118px;
+  height: 118px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-zone-drive .touch-stick-shell {
+  left: 22px;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-zone-aim .touch-stick-shell {
+  left: 22px;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-actions {
+  gap: 20px;
+}
+
+.touch-controls-root[data-mode='desktop'] .action-caption {
+  font-size: 0.5rem;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-button .key-hint {
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 0.56rem;
+}
+
+.touch-controls-root[data-mode='desktop'] .touch-button-mini .key-hint {
+  bottom: -15px;
+}
+
+.touch-controls-root[data-mode='desktop'] .action-caption {
+  top: calc(100% + 18px);
+}
+
+/* ---- Small phones -------------------------------------------------------- */
+
+@media (max-width: 700px), (orientation: portrait) and (max-width: 900px) {
+  .touch-controls-root[data-mode='touch'] .touch-stick-shell {
+    width: 124px;
+    height: 124px;
+  }
+
+  .touch-controls-root[data-mode='touch'] .touch-stick-knob {
+    width: 54px;
+    height: 54px;
+  }
+
+  .touch-controls-root .touch-button-mini {
+    width: 44px;
+    height: 44px;
+  }
+
+  .touch-controls-root .touch-button-fire {
+    width: 62px;
+    height: 62px;
+  }
+
+  .touch-button svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .touch-button-fire svg {
+    width: 27px;
+    height: 27px;
+  }
+
+  .touch-actions {
+    gap: 13px;
+  }
+
+  .touch-action-mini {
+    gap: 9px 10px;
+  }
+}
