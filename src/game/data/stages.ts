@@ -1,4 +1,4 @@
-import type { MissionConfig } from '../types';
+import type { CoverConfig, MissionConfig } from '../types';
 
 function commonCovers(offset = 0): MissionConfig['covers'] {
   return [
@@ -11,6 +11,47 @@ function commonCovers(offset = 0): MissionConfig['covers'] {
     { id: `concrete-b-${offset}`, kind: 'concrete', x: 1720 + offset, y: 610, width: 180, height: 100 },
     { id: `barrel-b-${offset}`, kind: 'barrel', x: 2020 + offset, y: 330, width: 54, height: 54 },
   ];
+}
+
+/**
+ * Cover cluster builders. Each returns a small group of props that together form
+ * a place worth hiding behind - a hard wall to break line of fire, plus lighter
+ * props on the flanks so a tank can peek out without fully exposing its hull.
+ */
+
+function bunker(id: string, x: number, y: number): CoverConfig[] {
+  return [
+    { id: `${id}-wall`, kind: 'concrete', x, y, width: 158, height: 82 },
+    { id: `${id}-crate`, kind: 'crate', x: x - 116, y: y + 58, width: 92, height: 58 },
+    { id: `${id}-barrel`, kind: 'barrel', x: x + 110, y: y - 52, width: 54, height: 54 },
+  ];
+}
+
+function crateNest(id: string, x: number, y: number): CoverConfig[] {
+  return [
+    { id: `${id}-a`, kind: 'crate', x, y, width: 116, height: 66 },
+    { id: `${id}-b`, kind: 'crate', x: x + 78, y: y + 64, width: 84, height: 56 },
+    { id: `${id}-c`, kind: 'barrel', x: x - 70, y: y + 40, width: 54, height: 54 },
+  ];
+}
+
+function barrelPair(id: string, x: number, y: number): CoverConfig[] {
+  return [
+    { id: `${id}-a`, kind: 'barrel', x, y, width: 56, height: 56 },
+    { id: `${id}-b`, kind: 'barrel', x: x + 64, y: y + 36, width: 56, height: 56 },
+  ];
+}
+
+/** Two slabs with a gap between them - a shooting lane that also blocks flanks. */
+function wallGate(id: string, x: number, y: number, gap = 190): CoverConfig[] {
+  return [
+    { id: `${id}-top`, kind: 'concrete', x, y: y - gap * 0.5, width: 96, height: 132 },
+    { id: `${id}-bottom`, kind: 'concrete', x, y: y + gap * 0.5, width: 96, height: 132 },
+  ];
+}
+
+function clusters(...groups: CoverConfig[][]): CoverConfig[] {
+  return groups.flat();
 }
 
 export const STAGES: MissionConfig[] = [
@@ -31,7 +72,17 @@ export const STAGES: MissionConfig[] = [
       accent: 0xf0c15a,
       obstacle: 0x786440,
     },
-    covers: commonCovers(),
+    covers: clusters(
+      commonCovers(),
+      bunker('cb-bunker-a', 620, 520),
+      crateNest('cb-nest-a', 980, 250),
+      barrelPair('cb-drums-a', 1180, 640),
+      wallGate('cb-gate-a', 1520, 480, 240),
+      crateNest('cb-nest-b', 1900, 260),
+      bunker('cb-bunker-b', 2180, 560),
+      barrelPair('cb-drums-b', 2420, 220),
+      crateNest('cb-nest-c', 2460, 720),
+    ),
     enemies: [
       { id: 'cv-scout-1', kind: 'scout', x: 620, y: 260 },
       { id: 'cv-raider-1', kind: 'raider', x: 920, y: 620 },
@@ -58,10 +109,19 @@ export const STAGES: MissionConfig[] = [
       accent: 0x7ed7dd,
       obstacle: 0x6a7378,
     },
-    covers: [
-      ...commonCovers(80),
-      { id: 'relay-core', kind: 'concrete', x: 1090, y: 460, width: 96, height: 96 },
-    ],
+    covers: clusters(
+      commonCovers(80),
+      [{ id: 'relay-core', kind: 'concrete', x: 1090, y: 460, width: 96, height: 96 }],
+      // ring of hard cover around the relay so holding it is about angles
+      bunker('rh-bunker-n', 1090, 190),
+      bunker('rh-bunker-s', 1090, 760),
+      crateNest('rh-nest-w', 780, 470),
+      crateNest('rh-nest-e', 1380, 430),
+      barrelPair('rh-drums-a', 1300, 700),
+      barrelPair('rh-drums-b', 820, 200),
+      wallGate('rh-gate-e', 1660, 470, 250),
+      crateNest('rh-nest-f', 1960, 700),
+    ),
     captureZones: [
       { id: 'relay-zone', label: 'Relay Signal', x: 1090, y: 460, radius: 170 },
     ],
@@ -91,11 +151,23 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x8c7146,
       water: 0x2d5e68,
     },
-    covers: [
-      ...commonCovers(120),
-      { id: 'bridge-west', kind: 'concrete', x: 1560, y: 470, width: 280, height: 72 },
-      { id: 'fuel-cache', kind: 'barrel', x: 2120, y: 680, width: 62, height: 62 },
-    ],
+    // Escort lane sits around y 520, so the heavy clusters stay above and below
+    // it and leave the truck a road to follow.
+    covers: clusters(
+      commonCovers(120),
+      [
+        { id: 'bridge-west', kind: 'concrete', x: 1560, y: 470, width: 280, height: 72 },
+        { id: 'fuel-cache', kind: 'barrel', x: 2120, y: 680, width: 62, height: 62 },
+      ],
+      bunker('sr-bunker-a', 640, 170),
+      crateNest('sr-nest-a', 1020, 790),
+      barrelPair('sr-drums-a', 1320, 200),
+      crateNest('sr-nest-b', 1380, 790),
+      bunker('sr-bunker-b', 1880, 230),
+      crateNest('sr-nest-c', 1960, 800),
+      barrelPair('sr-drums-b', 2180, 200),
+      bunker('sr-bunker-c', 2480, 780),
+    ),
     escort: {
       id: 'repair-truck',
       label: 'Repair Truck',
@@ -130,11 +202,23 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x74715d,
       water: 0x1f5d6b,
     },
-    covers: [
-      ...commonCovers(180),
-      { id: 'triangle-bunker', kind: 'concrete', x: 2180, y: 510, width: 240, height: 110 },
-      { id: 'triangle-cache', kind: 'barrel', x: 2440, y: 340, width: 62, height: 62 },
-    ],
+    covers: clusters(
+      commonCovers(180),
+      [
+        { id: 'triangle-bunker', kind: 'concrete', x: 2180, y: 510, width: 240, height: 110 },
+        { id: 'triangle-cache', kind: 'barrel', x: 2440, y: 340, width: 62, height: 62 },
+      ],
+      // each beacon gets flanking cover so contesting it is a fight over angles
+      crateNest('it-nest-a', 470, 360),
+      barrelPair('it-drums-a', 860, 150),
+      bunker('it-bunker-a', 1180, 420),
+      crateNest('it-nest-b', 1320, 860),
+      wallGate('it-gate-a', 1860, 520, 280),
+      crateNest('it-nest-c', 1980, 200),
+      barrelPair('it-drums-b', 2260, 800),
+      bunker('it-bunker-b', 2620, 260),
+      crateNest('it-nest-d', 2700, 700),
+    ),
     captureZones: [
       { id: 'beacon-a', label: 'Beacon Alpha', x: 720, y: 260, radius: 132 },
       { id: 'beacon-b', label: 'Beacon Bravo', x: 1510, y: 720, radius: 132 },
@@ -165,16 +249,26 @@ export const STAGES: MissionConfig[] = [
       accent: 0xff8757,
       obstacle: 0x737982,
     },
-    covers: [
-      ...commonCovers(80),
-      { id: 'gate-left', kind: 'concrete', x: 1850, y: 280, width: 250, height: 90 },
-      { id: 'gate-right', kind: 'concrete', x: 1850, y: 650, width: 250, height: 90 },
-      { id: 'boss-fuel-a', kind: 'barrel', x: 2140, y: 360, width: 62, height: 62 },
-      { id: 'boss-fuel-b', kind: 'barrel', x: 2140, y: 590, width: 62, height: 62 },
-    ],
+    covers: clusters(
+      commonCovers(80),
+      [
+        { id: 'gate-left', kind: 'concrete', x: 1850, y: 280, width: 250, height: 90 },
+        { id: 'gate-right', kind: 'concrete', x: 1850, y: 650, width: 250, height: 90 },
+        { id: 'boss-fuel-a', kind: 'barrel', x: 2140, y: 360, width: 62, height: 62 },
+        { id: 'boss-fuel-b', kind: 'barrel', x: 2140, y: 590, width: 62, height: 62 },
+      ],
+      // pillars in the boss arena to duck behind while the rail cannon charges
+      bunker('fc-bunker-a', 700, 520),
+      crateNest('fc-nest-a', 1080, 220),
+      barrelPair('fc-drums-a', 1240, 780),
+      crateNest('fc-nest-b', 1520, 480),
+      wallGate('fc-gate-a', 2260, 480, 300),
+      crateNest('fc-nest-c', 2430, 200),
+      crateNest('fc-nest-d', 2430, 760),
+    ),
     enemies: [
       { id: 'fc-scout-1', kind: 'scout', x: 760, y: 260 },
-      { id: 'fc-raider-1', kind: 'raider', x: 1080, y: 680 },
+      { id: 'fc-raider-1', kind: 'raider', x: 1080, y: 600 },
       { id: 'fc-turret-1', kind: 'turret', x: 1420, y: 290 },
       { id: 'fc-siege-1', kind: 'siege', x: 1600, y: 680 },
     ],
@@ -205,20 +299,30 @@ export const STAGES: MissionConfig[] = [
       accent: 0xa8d8f0,
       obstacle: 0x7d8a92,
     },
-    covers: [
-      ...commonCovers(60),
-      { id: 'pass-wall-a', kind: 'concrete', x: 1180, y: 200, width: 210, height: 96 },
-      { id: 'pass-wall-b', kind: 'concrete', x: 1980, y: 780, width: 210, height: 96 },
-      { id: 'pass-mine-a', kind: 'mine', x: 1520, y: 640, width: 42, height: 42 },
-      { id: 'pass-repair', kind: 'repair', x: 2320, y: 200, width: 88, height: 88 },
-    ],
+    covers: clusters(
+      commonCovers(60),
+      [
+        { id: 'pass-wall-a', kind: 'concrete', x: 1180, y: 200, width: 210, height: 96 },
+        { id: 'pass-wall-b', kind: 'concrete', x: 1980, y: 780, width: 210, height: 96 },
+        { id: 'pass-mine-a', kind: 'mine', x: 1520, y: 640, width: 42, height: 42 },
+        { id: 'pass-repair', kind: 'repair', x: 2320, y: 200, width: 88, height: 88 },
+      ],
+      bunker('fp-bunker-a', 640, 540),
+      crateNest('fp-nest-a', 940, 800),
+      barrelPair('fp-drums-a', 1300, 440),
+      wallGate('fp-gate-a', 1780, 470, 250),
+      crateNest('fp-nest-b', 2160, 200),
+      bunker('fp-bunker-b', 2280, 620),
+      barrelPair('fp-drums-b', 2600, 380),
+      crateNest('fp-nest-c', 2660, 760),
+    ),
     enemies: [
       { id: 'fp-scout-1', kind: 'scout', x: 640, y: 300 },
       { id: 'fp-scout-2', kind: 'scout', x: 760, y: 700 },
       { id: 'fp-raider-1', kind: 'raider', x: 1120, y: 500 },
       { id: 'fp-convoy-1', kind: 'convoy', x: 1460, y: 300 },
       { id: 'fp-convoy-2', kind: 'convoy', x: 1620, y: 660 },
-      { id: 'fp-turret-1', kind: 'turret', x: 2040, y: 300 },
+      { id: 'fp-turret-1', kind: 'turret', x: 2000, y: 260 },
       { id: 'fp-siege-1', kind: 'siege', x: 2260, y: 700 },
     ],
   },
@@ -239,13 +343,23 @@ export const STAGES: MissionConfig[] = [
       accent: 0xf0a95a,
       obstacle: 0x8a6f47,
     },
-    covers: [
-      ...commonCovers(40),
-      { id: 'ridge-core', kind: 'concrete', x: 1160, y: 500, width: 110, height: 110 },
-      { id: 'ridge-shield-a', kind: 'concrete', x: 1520, y: 320, width: 200, height: 92 },
-      { id: 'ridge-shield-b', kind: 'concrete', x: 1520, y: 700, width: 200, height: 92 },
-      { id: 'ridge-fuel', kind: 'barrel', x: 1820, y: 500, width: 62, height: 62 },
-    ],
+    covers: clusters(
+      commonCovers(40),
+      [
+        { id: 'ridge-core', kind: 'concrete', x: 1160, y: 500, width: 110, height: 110 },
+        { id: 'ridge-shield-a', kind: 'concrete', x: 1520, y: 320, width: 200, height: 92 },
+        { id: 'ridge-shield-b', kind: 'concrete', x: 1520, y: 700, width: 200, height: 92 },
+        { id: 'ridge-fuel', kind: 'barrel', x: 1820, y: 500, width: 62, height: 62 },
+      ],
+      // heavy walls the attackers stack behind - what the mortar is for
+      bunker('rb-bunker-a', 2000, 160),
+      bunker('rb-bunker-b', 2000, 860),
+      crateNest('rb-nest-a', 860, 760),
+      crateNest('rb-nest-b', 880, 240),
+      barrelPair('rb-drums-a', 1360, 880),
+      wallGate('rb-gate-a', 2080, 500, 260),
+      crateNest('rb-nest-c', 2240, 880),
+    ),
     captureZones: [
       { id: 'ridge-zone', label: 'Ridge Battery', x: 1160, y: 500, radius: 175 },
     ],
@@ -275,23 +389,38 @@ export const STAGES: MissionConfig[] = [
       accent: 0xb59cff,
       obstacle: 0x6c737a,
     },
-    covers: [
-      ...commonCovers(140),
-      { id: 'yard-shed-a', kind: 'concrete', x: 1320, y: 260, width: 260, height: 96 },
-      { id: 'yard-shed-b', kind: 'concrete', x: 1900, y: 780, width: 260, height: 96 },
-      { id: 'yard-fuel-a', kind: 'barrel', x: 2260, y: 420, width: 62, height: 62 },
-      { id: 'yard-mine-a', kind: 'mine', x: 1700, y: 520, width: 42, height: 42 },
-      { id: 'yard-repair', kind: 'repair', x: 2540, y: 760, width: 88, height: 88 },
-    ],
+    covers: clusters(
+      commonCovers(140),
+      [
+        { id: 'yard-shed-a', kind: 'concrete', x: 1320, y: 260, width: 260, height: 96 },
+        { id: 'yard-shed-b', kind: 'concrete', x: 1900, y: 780, width: 260, height: 96 },
+        { id: 'yard-fuel-a', kind: 'barrel', x: 2260, y: 420, width: 62, height: 62 },
+        { id: 'yard-mine-a', kind: 'mine', x: 1700, y: 520, width: 42, height: 42 },
+        { id: 'yard-repair', kind: 'repair', x: 2540, y: 760, width: 88, height: 88 },
+      ],
+      // long rolling-stock rows form the lanes the railgun shoots down
+      [
+        { id: 'yard-car-a', kind: 'concrete', x: 900, y: 520, width: 300, height: 62 },
+        { id: 'yard-car-b', kind: 'concrete', x: 1560, y: 620, width: 320, height: 62 },
+        { id: 'yard-car-c', kind: 'concrete', x: 2200, y: 240, width: 300, height: 62 },
+      ],
+      bunker('ry-bunker-a', 620, 820),
+      crateNest('ry-nest-a', 1060, 900),
+      barrelPair('ry-drums-a', 1420, 420),
+      crateNest('ry-nest-b', 1840, 200),
+      wallGate('ry-gate-a', 2460, 560, 250),
+      crateNest('ry-nest-c', 2820, 800),
+      barrelPair('ry-drums-b', 2880, 220),
+    ),
     captureZones: [
       { id: 'tower-a', label: 'Switch Tower A', x: 760, y: 300, radius: 130 },
       { id: 'tower-b', label: 'Switch Tower B', x: 1620, y: 760, radius: 130 },
       { id: 'tower-c', label: 'Switch Tower C', x: 2680, y: 380, radius: 130 },
     ],
     enemies: [
-      { id: 'ry-scout-1', kind: 'scout', x: 660, y: 620 },
+      { id: 'ry-scout-1', kind: 'scout', x: 620, y: 660 },
       { id: 'ry-raider-1', kind: 'raider', x: 1080, y: 300 },
-      { id: 'ry-raider-2', kind: 'raider', x: 1180, y: 760 },
+      { id: 'ry-raider-2', kind: 'raider', x: 1180, y: 830 },
       { id: 'ry-turret-1', kind: 'turret', x: 1560, y: 300 },
       { id: 'ry-siege-1', kind: 'siege', x: 2060, y: 560 },
       { id: 'ry-turret-2', kind: 'turret', x: 2480, y: 260 },
@@ -315,14 +444,27 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x6f5450,
       water: 0x3a3330,
     },
-    covers: [
-      ...commonCovers(100),
-      { id: 'ash-block-a', kind: 'concrete', x: 1340, y: 300, width: 220, height: 100 },
-      { id: 'ash-block-b', kind: 'concrete', x: 1980, y: 740, width: 220, height: 100 },
-      { id: 'ash-fuel-a', kind: 'barrel', x: 1640, y: 560, width: 62, height: 62 },
-      { id: 'ash-fuel-b', kind: 'barrel', x: 2360, y: 320, width: 62, height: 62 },
-      { id: 'ash-repair', kind: 'repair', x: 1880, y: 200, width: 88, height: 88 },
-    ],
+    // Hauler runs along y 540; the ruins crowd in from both sides without
+    // sealing the road shut.
+    covers: clusters(
+      commonCovers(100),
+      [
+        { id: 'ash-block-a', kind: 'concrete', x: 1340, y: 300, width: 220, height: 100 },
+        { id: 'ash-block-b', kind: 'concrete', x: 1980, y: 740, width: 220, height: 100 },
+        { id: 'ash-fuel-a', kind: 'barrel', x: 1640, y: 560, width: 62, height: 62 },
+        { id: 'ash-fuel-b', kind: 'barrel', x: 2360, y: 320, width: 62, height: 62 },
+        { id: 'ash-repair', kind: 'repair', x: 1880, y: 200, width: 88, height: 88 },
+      ],
+      bunker('ac-bunker-a', 700, 140),
+      crateNest('ac-nest-a', 760, 860),
+      barrelPair('ac-drums-a', 1160, 200),
+      crateNest('ac-nest-b', 1240, 800),
+      bunker('ac-bunker-b', 1720, 830),
+      crateNest('ac-nest-c', 2080, 220),
+      barrelPair('ac-drums-b', 2440, 800),
+      bunker('ac-bunker-c', 2700, 180),
+      crateNest('ac-nest-d', 2700, 820),
+    ),
     escort: {
       id: 'fuel-hauler',
       label: 'Fuel Hauler',
@@ -332,7 +474,7 @@ export const STAGES: MissionConfig[] = [
       health: 420,
     },
     enemies: [
-      { id: 'ac-raider-1', kind: 'raider', x: 780, y: 300 },
+      { id: 'ac-raider-1', kind: 'raider', x: 780, y: 240 },
       { id: 'ac-raider-2', kind: 'raider', x: 900, y: 780 },
       { id: 'ac-scout-1', kind: 'scout', x: 1240, y: 620 },
       { id: 'ac-turret-1', kind: 'turret', x: 1560, y: 260 },
@@ -357,18 +499,30 @@ export const STAGES: MissionConfig[] = [
       accent: 0x8ef0c0,
       obstacle: 0x6b747f,
     },
-    covers: [
-      ...commonCovers(60),
-      { id: 'sov-gate-a', kind: 'concrete', x: 1900, y: 240, width: 260, height: 100 },
-      { id: 'sov-gate-b', kind: 'concrete', x: 1900, y: 760, width: 260, height: 100 },
-      { id: 'sov-fuel-a', kind: 'barrel', x: 2200, y: 340, width: 62, height: 62 },
-      { id: 'sov-fuel-b', kind: 'barrel', x: 2200, y: 660, width: 62, height: 62 },
-      { id: 'sov-mine-a', kind: 'mine', x: 1660, y: 500, width: 42, height: 42 },
-      { id: 'sov-repair', kind: 'repair', x: 1180, y: 200, width: 88, height: 88 },
-    ],
+    covers: clusters(
+      commonCovers(60),
+      [
+        { id: 'sov-gate-a', kind: 'concrete', x: 1900, y: 240, width: 260, height: 100 },
+        { id: 'sov-gate-b', kind: 'concrete', x: 1900, y: 760, width: 260, height: 100 },
+        { id: 'sov-fuel-a', kind: 'barrel', x: 2200, y: 340, width: 62, height: 62 },
+        { id: 'sov-fuel-b', kind: 'barrel', x: 2200, y: 660, width: 62, height: 62 },
+        { id: 'sov-mine-a', kind: 'mine', x: 1660, y: 500, width: 42, height: 42 },
+        { id: 'sov-repair', kind: 'repair', x: 1180, y: 200, width: 88, height: 88 },
+      ],
+      // broken pillars across the approach and inside the Sovereign's arena
+      bunker('is-bunker-a', 620, 560),
+      crateNest('is-nest-a', 900, 820),
+      barrelPair('is-drums-a', 1280, 700),
+      crateNest('is-nest-b', 1560, 170),
+      wallGate('is-gate-a', 1660, 500, 280),
+      crateNest('is-nest-c', 2360, 180),
+      crateNest('is-nest-d', 2360, 800),
+      barrelPair('is-drums-b', 2600, 460),
+      bunker('is-bunker-b', 2660, 700),
+    ),
     enemies: [
-      { id: 'is-scout-1', kind: 'scout', x: 720, y: 300 },
-      { id: 'is-raider-1', kind: 'raider', x: 1080, y: 720 },
+      { id: 'is-scout-1', kind: 'scout', x: 700, y: 260 },
+      { id: 'is-raider-1', kind: 'raider', x: 1080, y: 820 },
       { id: 'is-turret-1', kind: 'turret', x: 1420, y: 260 },
       { id: 'is-turret-2', kind: 'turret', x: 1440, y: 760 },
       { id: 'is-siege-1', kind: 'siege', x: 1700, y: 500 },

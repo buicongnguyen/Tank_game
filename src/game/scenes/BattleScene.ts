@@ -41,6 +41,13 @@ interface TankRuntime {
   alive: boolean;
   exposed: boolean;
   trackPhase: number;
+  patrol: Array<{ x: number; y: number }>;
+  patrolIndex: number;
+  patrolPauseMs: number;
+  /** Guards against a patrol point that ends up unreachable behind cover. */
+  patrolTimeoutMs: number;
+  alerted: boolean;
+  idleSweep: number;
 }
 
 type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail';
@@ -219,6 +226,13 @@ const DIFFICULTY_HEALTH = {
 
 const CONVOY_ESCAPE_COUNTDOWN_MS = 8000;
 const CONVOY_WARNING_SECONDS = 12;
+
+/** Range at which a patrolling enemy notices the player and breaks off its route. */
+const ENEMY_DETECT_RANGE = 540;
+/** Wider range the player must clear before an alerted enemy settles back down. */
+const ENEMY_DISENGAGE_RANGE = 900;
+const PATROL_ARRIVE_RADIUS = 34;
+const PATROL_LEG_TIMEOUT_MS = 7000;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -442,7 +456,7 @@ export class BattleScene extends Phaser.Scene {
         spent: false,
       };
     });
-    this.enemies = mission.enemies.map((spawn) => this.createEnemy(spawn.kind, spawn.id, spawn.x, spawn.y, snapshot.difficulty));
+    this.enemies = mission.enemies.map((spawn, index) => this.createEnemy(spawn.kind, spawn.id, spawn.x, spawn.y, snapshot.difficulty, spawn.patrol, index));
 
     if (mission.boss) {
       const boss = this.createEnemy('boss', mission.boss.id, mission.boss.x, mission.boss.y, snapshot.difficulty);
@@ -490,6 +504,12 @@ export class BattleScene extends Phaser.Scene {
       alive: true,
       exposed: false,
       trackPhase: 0,
+      patrol: [],
+      patrolIndex: 0,
+      patrolPauseMs: 0,
+      patrolTimeoutMs: 0,
+      alerted: true,
+      idleSweep: 0,
     };
 
     this.cameras.main.setBounds(0, 0, mission.worldWidth, mission.worldHeight);
@@ -498,7 +518,15 @@ export class BattleScene extends Phaser.Scene {
     this.render();
   }
 
-  private createEnemy(kind: EnemyTankKind, id: string, x: number, y: number, difficulty: SessionSnapshot['difficulty']): TankRuntime {
+  private createEnemy(
+    kind: EnemyTankKind,
+    id: string,
+    x: number,
+    y: number,
+    difficulty: SessionSnapshot['difficulty'],
+    patrol?: Array<{ x: number; y: number }>,
+    seed = 0,
+  ): TankRuntime {
     const template = ENEMY_TEMPLATES[kind];
     const health = template.health * DIFFICULTY_HEALTH[difficulty];
     return {
@@ -525,7 +553,40 @@ export class BattleScene extends Phaser.Scene {
       alive: true,
       exposed: false,
       trackPhase: 0,
+      patrol: this.buildPatrolRoute(x, y, patrol, seed),
+      patrolIndex: seed % 4,
+      patrolPauseMs: 0,
+      patrolTimeoutMs: PATROL_LEG_TIMEOUT_MS,
+      // convoys and bosses never idle; everything else starts unaware
+      alerted: kind === 'convoy' || kind === 'boss',
+      idleSweep: seed * 0.9,
     };
+  }
+
+  private buildPatrolRoute(
+    x: number,
+    y: number,
+    patrol: Array<{ x: number; y: number }> | undefined,
+    seed: number,
+  ): Array<{ x: number; y: number }> {
+    const mission = this.mission;
+    const clampPoint = (point: { x: number; y: number }): { x: number; y: number } => ({
+      x: mission ? clamp(point.x, 70, mission.worldWidth - 70) : point.x,
+      y: mission ? clamp(point.y, 70, mission.worldHeight - 70) : point.y,
+    });
+
+    if (patrol && patrol.length > 0) {
+      return patrol.map(clampPoint);
+    }
+
+    // No authored route: sweep a small loop around the spawn so the enemy holds
+    // its sector instead of standing still.
+    const radius = 92 + (seed % 3) * 38;
+    const tilt = seed * 0.7;
+    return [0, 1, 2, 3].map((step) => {
+      const angle = tilt + (step / 4) * Math.PI * 2;
+      return clampPoint({ x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius });
+    });
   }
 
   private updatePlayer(player: TankRuntime, mission: MissionConfig, stats: TankStats, dt: number, delta: number): void {
@@ -654,8 +715,29 @@ export class BattleScene extends Phaser.Scene {
 
       enemy.reloadTimer = Math.max(0, enemy.reloadTimer - delta);
       const angleToPlayer = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-      enemy.turretAngle = approachAngle(enemy.turretAngle, angleToPlayer, 4.8 * dt);
+      const distanceToPlayer = Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y);
       enemy.exposed = enemy.kind === 'boss' && Math.sin(this.missionElapsed / 760) > 0.42;
+
+      // Convoys and bosses are always committed; the rest wake on proximity and
+      // only stand down once the player has pulled well clear again.
+      if (enemy.kind !== 'convoy' && enemy.kind !== 'boss') {
+        if (!enemy.alerted && distanceToPlayer < ENEMY_DETECT_RANGE) {
+          enemy.alerted = true;
+        } else if (enemy.alerted && distanceToPlayer > ENEMY_DISENGAGE_RANGE) {
+          enemy.alerted = false;
+          enemy.patrolPauseMs = 0;
+          enemy.patrolTimeoutMs = PATROL_LEG_TIMEOUT_MS;
+        }
+      }
+
+      if (enemy.alerted) {
+        enemy.turretAngle = approachAngle(enemy.turretAngle, angleToPlayer, 4.8 * dt);
+      } else {
+        // idle sweep so a patrolling turret still looks like it is searching
+        enemy.idleSweep += dt;
+        const sweepAngle = enemy.bodyAngle + Math.sin(enemy.idleSweep * 0.8) * 0.95;
+        enemy.turretAngle = approachAngle(enemy.turretAngle, sweepAngle, 1.7 * dt);
+      }
 
       if (enemy.kind === 'convoy') {
         const escapeLine = mission.exitX ? mission.exitX - enemy.radius : mission.worldWidth - enemy.radius;
@@ -663,13 +745,17 @@ export class BattleScene extends Phaser.Scene {
         enemy.vx = enemy.x >= escapeLine ? 0 : enemy.speed;
         enemy.bodyAngle = 0;
       } else if (enemy.kind !== 'turret') {
-        const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y);
-        const preferred = enemy.kind === 'boss' ? 430 : 310;
-        const chase = distance > preferred ? 1 : distance < preferred * 0.55 ? -0.55 : 0.15;
-        const strafe = Math.sin((this.missionElapsed + enemy.x * 17) / 900) * 0.42;
-        const moveAngle = angleToPlayer + strafe;
-        enemy.vx = Math.cos(moveAngle) * enemy.speed * chase;
-        enemy.vy = Math.sin(moveAngle) * enemy.speed * chase;
+        if (enemy.alerted) {
+          const preferred = enemy.kind === 'boss' ? 430 : 310;
+          const chase = distanceToPlayer > preferred ? 1 : distanceToPlayer < preferred * 0.55 ? -0.55 : 0.15;
+          const strafe = Math.sin((this.missionElapsed + enemy.x * 17) / 900) * 0.42;
+          const moveAngle = angleToPlayer + strafe;
+          enemy.vx = Math.cos(moveAngle) * enemy.speed * chase;
+          enemy.vy = Math.sin(moveAngle) * enemy.speed * chase;
+        } else {
+          this.stepPatrol(enemy, delta);
+        }
+
         enemy.x = clamp(enemy.x + enemy.vx * dt, enemy.radius, mission.worldWidth - enemy.radius);
         enemy.y = clamp(enemy.y + enemy.vy * dt, enemy.radius, mission.worldHeight - enemy.radius);
         this.resolveTankCoverCollision(enemy);
@@ -681,9 +767,10 @@ export class BattleScene extends Phaser.Scene {
       enemy.trackPhase += Math.hypot(enemy.vx, enemy.vy) * dt;
 
       const openingGraceMs = mission.kind === 'assault' ? 3600 : 2000;
-      const canFire = this.missionElapsed > openingGraceMs
+      const canFire = enemy.alerted
+        && this.missionElapsed > openingGraceMs
         && enemy.reloadTimer <= 0
-        && Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y) < 820;
+        && distanceToPlayer < 820;
       if (canFire) {
         this.fireProjectile(
           enemy,
@@ -695,6 +782,40 @@ export class BattleScene extends Phaser.Scene {
         );
       }
     }
+  }
+
+  private stepPatrol(enemy: TankRuntime, delta: number): void {
+    if (enemy.patrol.length === 0 || enemy.speed <= 0) {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      return;
+    }
+
+    if (enemy.patrolPauseMs > 0) {
+      enemy.patrolPauseMs -= delta;
+      enemy.vx *= 0.82;
+      enemy.vy *= 0.82;
+      return;
+    }
+
+    const point = enemy.patrol[enemy.patrolIndex % enemy.patrol.length];
+    const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, point.x, point.y);
+    enemy.patrolTimeoutMs -= delta;
+
+    // Advance on arrival, or give up on a leg that cover has made unreachable.
+    if (distance <= PATROL_ARRIVE_RADIUS || enemy.patrolTimeoutMs <= 0) {
+      enemy.patrolIndex = (enemy.patrolIndex + 1) % enemy.patrol.length;
+      enemy.patrolPauseMs = 500 + (enemy.patrolIndex % 3) * 320;
+      enemy.patrolTimeoutMs = PATROL_LEG_TIMEOUT_MS;
+      enemy.vx = 0;
+      enemy.vy = 0;
+      return;
+    }
+
+    const angle = Math.atan2(point.y - enemy.y, point.x - enemy.x);
+    const cruise = enemy.speed * 0.46;
+    enemy.vx = Math.cos(angle) * cruise;
+    enemy.vy = Math.sin(angle) * cruise;
   }
 
   private updateConvoyEscapeState(mission: MissionConfig, delta: number): void {
@@ -757,10 +878,21 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      if (circleRectOverlap(escort.x, escort.y, 30, cover)) {
-        escort.x = Math.min(escort.x, cover.x - cover.width * 0.5 - 32);
-        escort.vx *= 0.2;
+      if (!circleRectOverlap(escort.x, escort.y, 30, cover)) {
+        continue;
       }
+
+      // Steer around the obstruction instead of clamping x: pinning the truck
+      // behind a slab left it oscillating on the edge forever and the mission
+      // could never be completed.
+      const dy = escort.y - cover.y;
+      const clearance = cover.height * 0.5 + 32 - Math.abs(dy);
+      escort.y = clamp(
+        escort.y + Math.sign(dy || 1) * Math.max(clearance, 1),
+        70,
+        this.mission.worldHeight - 70,
+      );
+      escort.vx *= 0.6;
     }
   }
 
