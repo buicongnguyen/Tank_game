@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
-import { darkenColor, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
+import { darkenColor, INFANTRY_PALETTE, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
 import { WEAPONS, type WeaponSpec } from '../data/weapons';
 import type {
   BossStatus,
@@ -142,6 +142,31 @@ interface EnemyTemplate {
 }
 
 const ENEMY_TEMPLATES: Record<EnemyTankKind, EnemyTemplate> = {
+  // Infantry. Riflemen only chip at the hull, so early stages are about learning
+  // to drive and aim; rocketeers hit as hard as a tank shell and have to be
+  // respected even though they die to a single hit.
+  rifleman: {
+    label: 'Rifleman',
+    health: 42,
+    speed: 92,
+    radius: 14,
+    reloadMs: 900,
+    damage: 6,
+    shellSpeed: 620,
+    score: 45,
+    scrap: 4,
+  },
+  rocketeer: {
+    label: 'Rocketeer',
+    health: 55,
+    speed: 74,
+    radius: 15,
+    reloadMs: 2600,
+    damage: 46,
+    shellSpeed: 430,
+    score: 90,
+    scrap: 9,
+  },
   scout: {
     label: 'Scout Tank',
     health: 95,
@@ -208,6 +233,20 @@ const ENEMY_TEMPLATES: Record<EnemyTankKind, EnemyTemplate> = {
     score: 1200,
     scrap: 90,
   },
+};
+
+/** What each enemy kind throws at the player. */
+const ENEMY_SHOTS: Record<EnemyTankKind, { style: ProjectileKind; blastRadius: number; color: number }> = {
+  // a rifle round barely scratches armour and leaves no real blast
+  rifleman: { style: 'shell', blastRadius: 0, color: 0xffe9a8 },
+  // an infantry rocket lands about as hard as a tank shell
+  rocketeer: { style: 'rocket', blastRadius: 54, color: 0xff7447 },
+  scout: { style: 'shell', blastRadius: 48, color: 0xffc16d },
+  raider: { style: 'shell', blastRadius: 48, color: 0xffc16d },
+  siege: { style: 'shell', blastRadius: 48, color: 0xffc16d },
+  turret: { style: 'shell', blastRadius: 48, color: 0xffc16d },
+  convoy: { style: 'shell', blastRadius: 48, color: 0xffc16d },
+  boss: { style: 'shell', blastRadius: 76, color: 0xff8a5b },
 };
 
 const DIFFICULTY_DAMAGE = {
@@ -296,6 +335,16 @@ function coverHealth(config: CoverConfig): number {
 }
 
 function enemyColor(kind: EnemyTankKind): number {
+  // Infantry wear the rambo_game fatigue/bandana palette so they read as the
+  // same faction those sprites came from.
+  if (kind === 'rifleman') {
+    return 0x2d2f38;
+  }
+
+  if (kind === 'rocketeer') {
+    return 0x3b3038;
+  }
+
   if (kind === 'scout') {
     return 0xd6b45c;
   }
@@ -772,13 +821,15 @@ export class BattleScene extends Phaser.Scene {
         && enemy.reloadTimer <= 0
         && distanceToPlayer < 820;
       if (canFire) {
+        const shot = ENEMY_SHOTS[enemy.kind as EnemyTankKind] ?? ENEMY_SHOTS.raider;
         this.fireProjectile(
           enemy,
           'enemy',
           enemy.damage * DIFFICULTY_DAMAGE[difficulty],
           enemy.shellSpeed,
-          enemy.kind === 'boss' ? 76 : 48,
-          enemy.kind === 'boss' ? 0xff8a5b : 0xffc16d,
+          shot.blastRadius,
+          shot.color,
+          shot.style,
         );
       }
     }
@@ -1838,7 +1889,9 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
-      if (projectile.kind === 'mortar') {
+      if (projectile.sourceKind === 'rifleman') {
+        this.drawBullet(graphics, projectile);
+      } else if (projectile.kind === 'mortar') {
         this.drawMortarShell(graphics, projectile);
       } else if (projectile.kind === 'rail') {
         this.drawRailSlug(graphics, projectile);
@@ -1850,6 +1903,18 @@ export class BattleScene extends Phaser.Scene {
         this.drawShell(graphics, projectile);
       }
     }
+  }
+
+  /** Rifle round: a thin tracer, deliberately far less imposing than a shell. */
+  private drawBullet(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    const tail = localToWorld(projectile.x, projectile.y, angle, -26, 0);
+    graphics.lineStyle(3, projectile.color, 0.28);
+    graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+    graphics.lineStyle(1.5, projectile.color, 0.9);
+    graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+    graphics.fillStyle(0xfffdf0, 0.95);
+    graphics.fillCircle(projectile.x, projectile.y, 2.4);
   }
 
   private drawMortarShell(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
@@ -2007,6 +2072,11 @@ export class BattleScene extends Phaser.Scene {
     const turretColor = darkenColor(color, 0.5);
     const runnerColor = darkenColor(color, 0.32);
 
+    if (art.chassis === 'infantry') {
+      this.drawInfantry(graphics, tank, art);
+      return;
+    }
+
     if (art.chassis !== 'static') {
       this.drawRunners(graphics, tank, art, runnerColor);
     }
@@ -2039,6 +2109,72 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2, 5);
     graphics.fillStyle(tank.team === 'player' ? 0xa2db7c : 0xff845f, 0.95);
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 5);
+  }
+
+  /**
+   * Top-down soldier: boots, torso, then helmet with a trailing bandana, and a
+   * weapon held along the aim line. Legs swing with trackPhase so they read as
+   * running rather than sliding.
+   */
+  private drawInfantry(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt): void {
+    const r = tank.radius;
+    const rocketeer = tank.kind === 'rocketeer';
+    const p = INFANTRY_PALETTE;
+
+    graphics.fillStyle(0x05070a, 0.34);
+    graphics.fillEllipse(tank.x, tank.y + r * 0.34, r * 1.9, r * 1.2);
+
+    const stride = Math.sin(tank.trackPhase * 0.22) * r * 0.42;
+    for (const side of [-1, 1]) {
+      const boot = localToWorld(tank.x, tank.y, tank.bodyAngle, stride * side, r * 0.46 * side);
+      graphics.fillStyle(p.fatigueDark, 1);
+      graphics.fillCircle(boot.x, boot.y, r * 0.26);
+    }
+
+    this.drawPolygon(graphics, tank.x, tank.y, art.hull, tank.bodyAngle, r, p.fatigue, 1, 0x05070a, 0.6, 1.5);
+
+    // webbing across the chest
+    const webA = localToWorld(tank.x, tank.y, tank.bodyAngle, r * 0.12, -r * 0.4);
+    const webB = localToWorld(tank.x, tank.y, tank.bodyAngle, -r * 0.2, r * 0.42);
+    graphics.lineStyle(Math.max(2, r * 0.16), p.webbing, 0.95);
+    graphics.lineBetween(webA.x, webA.y, webB.x, webB.y);
+
+    this.drawInfantryWeapon(graphics, tank, art, rocketeer);
+
+    // helmet + bandana tail, drawn last so the soldier reads from above
+    graphics.fillStyle(p.skin, 1);
+    graphics.fillCircle(tank.x, tank.y, r * 0.46);
+    graphics.fillStyle(rocketeer ? p.bandanaDark : p.bandana, 1);
+    graphics.fillCircle(tank.x, tank.y, r * 0.34);
+    const tail = localToWorld(tank.x, tank.y, tank.turretAngle, -r * 0.9, r * 0.24);
+    const tailBase = localToWorld(tank.x, tank.y, tank.turretAngle, -r * 0.3, r * 0.1);
+    graphics.lineStyle(Math.max(1.5, r * 0.13), p.bandana, 0.9);
+    graphics.lineBetween(tailBase.x, tailBase.y, tail.x, tail.y);
+
+    graphics.fillStyle(0x070908, 0.75);
+    graphics.fillRect(tank.x - r, tank.y - r - 14, r * 2, 4);
+    graphics.fillStyle(0xff845f, 0.95);
+    graphics.fillRect(tank.x - r, tank.y - r - 14, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 4);
+  }
+
+  private drawInfantryWeapon(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, rocketeer: boolean): void {
+    const r = tank.radius;
+    const p = INFANTRY_PALETTE;
+    const start = localToWorld(tank.x, tank.y, tank.turretAngle, r * 0.1, r * 0.18);
+    const tip = localToWorld(tank.x, tank.y, tank.turretAngle, art.barrelLength * r, r * 0.18);
+
+    graphics.lineStyle(art.barrelWidth + 2, 0x101216, 1);
+    graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+    graphics.lineStyle(art.barrelWidth, p.weapon, 1);
+    graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+
+    if (rocketeer) {
+      // fat warhead on the launcher so the dangerous one is readable at a glance
+      graphics.fillStyle(p.bandana, 1);
+      graphics.fillCircle(tip.x, tip.y, r * 0.24);
+      graphics.lineStyle(1.5, 0x101216, 0.8);
+      graphics.strokeCircle(tip.x, tip.y, r * 0.24);
+    }
   }
 
   private drawRunners(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, color: number): void {

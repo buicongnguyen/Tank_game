@@ -5,7 +5,23 @@ export interface Point {
   y: number;
 }
 
-export type ChassisKind = 'tracked' | 'wheeled' | 'static';
+export type ChassisKind = 'tracked' | 'wheeled' | 'static' | 'infantry';
+
+/**
+ * Palette lifted from the rambo_game rifleman/rocketeer sprites so the infantry
+ * read as the same faction. Those sprites are side-view platformer art and
+ * cannot be drawn into this top-down field, so the shapes are authored here
+ * instead - this keeps them rotating correctly with the rest of the units.
+ */
+export const INFANTRY_PALETTE = {
+  fatigue: 0x2d2f38,
+  fatigueDark: 0x161212,
+  webbing: 0x4b4d59,
+  skin: 0xb89574,
+  bandana: 0xff7447,
+  bandanaDark: 0xbb4a20,
+  weapon: 0xa1a4ab,
+};
 
 /**
  * Silhouette data for one tank archetype, expressed in "radius units" (1.0 = tank.radius)
@@ -29,6 +45,57 @@ export interface TankArt {
 export type TankArtKind = EnemyTankKind | 'player';
 
 export const TANK_ART: Record<TankArtKind, TankArt> = {
+  // Infantry seen from above: shoulders wider than hips, helmet drawn on top.
+  rifleman: {
+    hull: [
+      { x: 0.5, y: -0.42 },
+      { x: 0.72, y: 0 },
+      { x: 0.5, y: 0.42 },
+      { x: -0.55, y: 0.5 },
+      { x: -0.75, y: 0 },
+      { x: -0.55, y: -0.5 },
+    ],
+    turret: [
+      { x: 0.34, y: -0.3 },
+      { x: 0.44, y: 0 },
+      { x: 0.34, y: 0.3 },
+      { x: -0.3, y: 0.34 },
+      { x: -0.42, y: 0 },
+      { x: -0.3, y: -0.34 },
+    ],
+    chassis: 'infantry',
+    barrelLength: 1.45,
+    barrelWidth: 3,
+    runnerOffset: 0,
+    runnerWidth: 0,
+    hasArmorBlocks: false,
+    hasSensorMast: false,
+  },
+  rocketeer: {
+    hull: [
+      { x: 0.52, y: -0.46 },
+      { x: 0.76, y: 0 },
+      { x: 0.52, y: 0.46 },
+      { x: -0.58, y: 0.54 },
+      { x: -0.8, y: 0 },
+      { x: -0.58, y: -0.54 },
+    ],
+    turret: [
+      { x: 0.36, y: -0.32 },
+      { x: 0.46, y: 0 },
+      { x: 0.36, y: 0.32 },
+      { x: -0.32, y: 0.36 },
+      { x: -0.44, y: 0 },
+      { x: -0.32, y: -0.36 },
+    ],
+    chassis: 'infantry',
+    barrelLength: 1.7,
+    barrelWidth: 6,
+    runnerOffset: 0,
+    runnerWidth: 0,
+    hasArmorBlocks: false,
+    hasSensorMast: false,
+  },
   player: {
     hull: [
       { x: 1.02, y: 0 },

@@ -1,7 +1,7 @@
 export type SessionPhase = 'menu' | 'playing' | 'paused' | 'intermission' | 'gameover' | 'victory';
 export type DifficultyMode = 'easy' | 'normal' | 'hard' | 'extreme';
 export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
-export type EnemyTankKind = 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
+export type EnemyTankKind = 'rifleman' | 'rocketeer' | 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
 export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
 export type WeaponId = 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing';
