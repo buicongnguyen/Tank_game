@@ -1,4 +1,5 @@
 interface WindowWithWebAudio extends Window {
+  AudioContext?: typeof globalThis.AudioContext;
   webkitAudioContext?: typeof AudioContext;
 }
 
@@ -96,7 +97,7 @@ export class BattleMusic {
     }
 
     const audioWindow = window as WindowWithWebAudio;
-    const AudioContextCtor = AudioContext ?? audioWindow.webkitAudioContext;
+    const AudioContextCtor = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
     if (!AudioContextCtor) {
       return undefined;
     }

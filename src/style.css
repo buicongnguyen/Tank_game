@@ -1803,16 +1803,20 @@ a {
   .pause-grid {
     grid-template-columns: 1fr;
   }
+
+  .hud-bar,
+  .hud-settings-button,
+  .cooldown-strip,
+  .touch-stick-shell,
+  .touch-button {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* ==========================================================================
-   Mobile touch controls, rebuilt around dynamic (floating) sticks.
-
-   The old layout pinned a small aim pad between the drive stick and a 2x2
-   button grid, so aiming was cramped and the action buttons crowded the fire
-   button. Now each thumb owns half the screen: the stick ring is drawn
-   wherever the thumb lands, pushing the aim stick also fires, and the action
-   buttons are small labelled circles tucked into the corner.
+   Mobile touch controls. Movement is anchored at bottom-left, matching
+   rambo_game; taps on the unobstructed battlefield aim the turret.
    ========================================================================== */
 
 .touch-zone {
@@ -1828,13 +1832,12 @@ a {
   width: 46%;
 }
 
-.touch-zone-aim {
-  right: 0;
-  width: 54%;
-}
-
 .touch-controls-root[data-mode='touch'] .touch-zone {
   pointer-events: auto;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-zone-drive {
+  pointer-events: none;
 }
 
 .touch-controls-root[data-mode='touch'] .touch-stick-shell {
@@ -1854,6 +1857,15 @@ a {
   opacity: 1;
 }
 
+.touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
+  left: max(18px, env(safe-area-inset-left, 0px));
+  top: auto;
+  bottom: max(36px, calc(16px + env(safe-area-inset-bottom, 0px)));
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .touch-controls-root[data-mode='touch'] .touch-stick-knob {
   width: 62px;
   height: 62px;
@@ -1861,23 +1873,6 @@ a {
 
 .touch-controls-root[data-mode='touch'] .touch-stick-label,
 .touch-controls-root[data-mode='touch'] .touch-stick-keys {
-  display: none;
-}
-
-.touch-zone-hint {
-  position: absolute;
-  right: 18px;
-  bottom: 8px;
-  font-size: 0.56rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-  opacity: 0.5;
-  pointer-events: none;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-zone-hint {
   display: none;
 }
 
@@ -1991,13 +1986,6 @@ a {
   right: auto;
 }
 
-/* Aim pad sits beside the action buttons in the bottom-right corner rather than
-   floating over the middle of the battlefield. */
-.touch-controls-root[data-mode='desktop'] .touch-zone-aim .touch-stick-shell {
-  left: auto;
-  right: 214px;
-}
-
 /* A finger on a touchscreen desktop still gets the floating pad. */
 .touch-controls-root[data-mode='desktop'] .touch-stick-shell[data-floating='true'] {
   left: var(--origin-x, 50%);
@@ -2044,6 +2032,11 @@ a {
   .touch-controls-root[data-mode='touch'] .touch-stick-knob {
     width: 54px;
     height: 54px;
+  }
+
+  .touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
+    left: max(8px, env(safe-area-inset-left, 0px));
+    bottom: max(48px, calc(24px + env(safe-area-inset-bottom, 0px)));
   }
 
   .touch-controls-root .touch-button-mini {
@@ -2198,8 +2191,22 @@ a {
 }
 
 .shop-card.is-owned {
-  opacity: 0.7;
   border-color: rgba(162, 219, 124, 0.4);
+}
+
+.shop-card.is-maxed {
+  opacity: 0.62;
+}
+
+.shop-overlay-card {
+  width: min(980px, 100%);
+}
+
+.shop-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 10px;
+  background: linear-gradient(180deg, transparent, rgba(7, 12, 8, 0.96) 32%);
 }
 
 .shop-card strong {

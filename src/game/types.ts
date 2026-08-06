@@ -117,6 +117,7 @@ export interface ShopEntry {
   level: number;
   maxLevel: number;
   owned: boolean;
+  maxed: boolean;
   affordable: boolean;
 }
 
@@ -158,6 +159,7 @@ export interface HudSnapshot {
   weapon: {
     id: WeaponId;
     label: string;
+    level: number;
     unlockedCount: number;
   };
   boss?: BossStatus;
@@ -179,6 +181,7 @@ export interface SessionSnapshot {
   pendingUpgrades: UpgradeOption[];
   unlockedWeapons: WeaponId[];
   selectedWeapon: WeaponId;
+  weaponLevels: Partial<Record<WeaponId, number>>;
   playerClass: PlayerClassId;
   credits: number;
   shop: ShopEntry[];

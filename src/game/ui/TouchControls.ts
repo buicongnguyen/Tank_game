@@ -10,8 +10,6 @@ function isTouchButtonAction(value: string | undefined): value is TouchButtonAct
 
 /** Travel from the stick origin, in px, that maps to a fully deflected axis. */
 const STICK_RADIUS = 58;
-/** Aim deflection past which the cannon starts firing on its own. */
-const AUTO_FIRE_DEADZONE = 0.25;
 
 const ICONS: Record<string, string> = {
   fire: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.2h9V5.6l6.4 6.4L12 18.4v-3.6H3z"/></svg>',
@@ -25,7 +23,6 @@ interface StickBinding {
   zone: HTMLElement;
   shell: HTMLElement;
   knob: HTMLElement;
-  mode: 'drive' | 'aim';
   release?: () => void;
 }
 
@@ -61,15 +58,6 @@ export class TouchControlsOverlay {
             <span class="touch-stick-label">Drive</span>
           </div>
         </div>
-        <div class="touch-zone touch-zone-aim" data-zone="aim">
-          <div class="touch-stick-shell tank-aim-stick" data-shell data-engaged="false">
-            <div class="touch-stick-ring"></div>
-            <div class="touch-stick-knob" data-knob></div>
-            <span class="touch-stick-keys">Mouse</span>
-            <span class="touch-stick-label">Aim &amp; Fire</span>
-          </div>
-          <span class="touch-zone-hint">Drag here to aim and fire</span>
-        </div>
         <div class="touch-actions">
           <div class="touch-action-mini">
             <button type="button" class="touch-button touch-button-mini" data-action="secondary" aria-label="Secondary weapon">
@@ -101,18 +89,15 @@ export class TouchControlsOverlay {
       </div>
     `;
 
-    for (const mode of ['drive', 'aim'] as const) {
-      const zone = this.root.querySelector<HTMLElement>(`[data-zone="${mode}"]`);
-      const shell = zone?.querySelector<HTMLElement>('[data-shell]');
-      const knob = zone?.querySelector<HTMLElement>('[data-knob]');
-      if (!zone || !shell || !knob) {
-        throw new Error('Tank touch controls failed to initialize.');
-      }
-
-      const binding: StickBinding = { zone, shell, knob, mode };
-      this.sticks.push(binding);
-      this.bindStick(binding);
+    const zone = this.root.querySelector<HTMLElement>('[data-zone="drive"]');
+    const shell = zone?.querySelector<HTMLElement>('[data-shell]');
+    const knob = zone?.querySelector<HTMLElement>('[data-knob]');
+    if (!zone || !shell || !knob) {
+      throw new Error('Tank touch controls failed to initialize.');
     }
+    const binding: StickBinding = { zone, shell, knob };
+    this.sticks.push(binding);
+    this.bindStick(binding);
 
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
     this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
@@ -146,7 +131,7 @@ export class TouchControlsOverlay {
 
     const weaponLabel = this.secondaryButton?.querySelector<HTMLElement>('[data-weapon-label]');
     if (weaponLabel) {
-      weaponLabel.textContent = snapshot.weapon.label;
+      weaponLabel.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level}`;
     }
     if (this.secondaryButton) {
       this.secondaryButton.dataset.cooldown = snapshot.tank.secondaryPercent >= 1 ? 'false' : 'true';
@@ -180,13 +165,9 @@ export class TouchControlsOverlay {
     }
   }
 
-  /**
-   * Sticks are dynamic: the ring is drawn wherever the thumb lands inside its
-   * half of the screen rather than sitting in a fixed corner. That keeps aiming
-   * comfortable across hand sizes and grips, which a small fixed pad did not.
-   */
+  /** The drive stick stays anchored at bottom-left. The battlefield handles aim taps. */
   private bindStick(binding: StickBinding): void {
-    const { zone, shell, knob, mode } = binding;
+    const { zone, shell, knob } = binding;
     let pointerId: number | null = null;
     let originX = 0;
     let originY = 0;
@@ -194,18 +175,6 @@ export class TouchControlsOverlay {
     const placeShell = (x: number, y: number): void => {
       shell.style.setProperty('--origin-x', `${x}px`);
       shell.style.setProperty('--origin-y', `${y}px`);
-    };
-
-    const applyAxis = (nx: number, ny: number): void => {
-      if (mode === 'drive') {
-        this.gamepad.setDriveAxis(nx, ny);
-        return;
-      }
-
-      this.gamepad.setAimAxis(nx, ny);
-      // Twin-stick convention: pushing the aim stick shoots, so the player does
-      // not have to hold a separate fire button with the same thumb.
-      this.gamepad.setAction(1, 'fire', Math.hypot(nx, ny) > AUTO_FIRE_DEADZONE);
     };
 
     const updateStick = (event: PointerEvent): void => {
@@ -219,7 +188,7 @@ export class TouchControlsOverlay {
 
       knob.style.setProperty('--stick-x', `${knobX}px`);
       knob.style.setProperty('--stick-y', `${knobY}px`);
-      applyAxis(knobX / STICK_RADIUS, knobY / STICK_RADIUS);
+      this.gamepad.setDriveAxis(knobX / STICK_RADIUS, knobY / STICK_RADIUS);
     };
 
     // Move/up are tracked on the window rather than the zone. On the desktop
@@ -249,12 +218,7 @@ export class TouchControlsOverlay {
       window.removeEventListener('pointercancel', onWindowUp);
 
       pointerId = null;
-      if (mode === 'drive') {
-        this.gamepad.setDriveAxis(0, 0);
-      } else {
-        this.gamepad.clearAimAxis();
-        this.gamepad.setAction(1, 'fire', false);
-      }
+      this.gamepad.setDriveAxis(0, 0);
 
       shell.dataset.engaged = 'false';
       delete shell.dataset.floating;
@@ -292,11 +256,12 @@ export class TouchControlsOverlay {
       updateStick(event);
     };
 
-    // Touch layout: the whole zone is live and the pad floats to the thumb.
-    zone.addEventListener('pointerdown', (event) => {
-      startStick(event, this.root.dataset.mode === 'touch');
+    // Match rambo_game on mobile: movement has a predictable bottom-left home.
+    // Touches elsewhere pass through to Phaser's tap-to-aim handler.
+    shell.addEventListener('pointerdown', (event) => {
+      startStick(event, false);
     });
-    zone.addEventListener('contextmenu', (event) => event.preventDefault());
+    shell.addEventListener('contextmenu', (event) => event.preventDefault());
 
     // Desktop layout with a touchscreen: the zone is click-through so the mouse
     // reaches the canvas, but a finger should still get the floating stick.

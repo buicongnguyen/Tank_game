@@ -292,6 +292,8 @@ const PICKUP_MAGNET_RANGE = 190;
 const PICKUP_TTL_MS = 22000;
 /** How long a poison cloud lingers and keeps pulsing damage. */
 const GAS_CLOUD_DURATION_MS = 3600;
+/** DOM HUD updates are intentionally slower than the 60 Hz simulation. */
+const HUD_UPDATE_INTERVAL_MS = 100;
 
 /** Hull speed a tank needs before it can run infantry down. */
 const INFANTRY_CRUSH_SPEED = 90;
@@ -335,8 +337,60 @@ function circleRectOverlap(cx: number, cy: number, radius: number, rect: CoverRu
   return Phaser.Math.Distance.Between(cx, cy, nearestX, nearestY) <= radius;
 }
 
-function rectContainsPoint(rect: CoverRuntime, x: number, y: number): boolean {
-  return Math.abs(x - rect.x) <= rect.width * 0.5 && Math.abs(y - rect.y) <= rect.height * 0.5;
+function segmentPointHitTime(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  pointX: number,
+  pointY: number,
+  radius: number,
+): number | null {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared > 0
+    ? clamp(((pointX - startX) * dx + (pointY - startY) * dy) / lengthSquared, 0, 1)
+    : 0;
+  const closestX = startX + dx * t;
+  const closestY = startY + dy * t;
+  const distanceSquared = (pointX - closestX) ** 2 + (pointY - closestY) ** 2;
+  return distanceSquared <= radius * radius ? t : null;
+}
+
+function segmentRectHitTime(projectile: ProjectileRuntime, rect: CoverRuntime): number | null {
+  const halfWidth = rect.width * 0.5 + projectile.radius;
+  const halfHeight = rect.height * 0.5 + projectile.radius;
+  const minX = rect.x - halfWidth;
+  const maxX = rect.x + halfWidth;
+  const minY = rect.y - halfHeight;
+  const maxY = rect.y + halfHeight;
+  const dx = projectile.x - projectile.previousX;
+  const dy = projectile.y - projectile.previousY;
+  let entry = 0;
+  let exit = 1;
+
+  for (const [start, delta, min, max] of [
+    [projectile.previousX, dx, minX, maxX],
+    [projectile.previousY, dy, minY, maxY],
+  ] as const) {
+    if (Math.abs(delta) < 0.000001) {
+      if (start < min || start > max) {
+        return null;
+      }
+      continue;
+    }
+
+    const t1 = (min - start) / delta;
+    const t2 = (max - start) / delta;
+    entry = Math.max(entry, Math.min(t1, t2));
+    exit = Math.min(exit, Math.max(t1, t2));
+    if (entry > exit) {
+      return null;
+    }
+  }
+
+  return entry;
 }
 
 function coverHealth(config: CoverConfig): number {
@@ -420,6 +474,8 @@ export class BattleScene extends Phaser.Scene {
   private shieldQuietMs = 0;
   private floatingTexts: FloatingText[] = [];
   private lastRunSerial = -1;
+  private missionGeneration = 0;
+  private hudUpdateElapsed = 0;
   private missionElapsed = 0;
   private defenseHeldMs = 0;
   private missionResolved = false;
@@ -463,12 +519,15 @@ export class BattleScene extends Phaser.Scene {
       switchWeapon: Phaser.Input.Keyboard.KeyCodes.X,
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+    const pointTurretAtPointer = (pointer: Phaser.Input.Pointer): void => {
       this.lastPointerWorld = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    });
+    };
+    this.input.on('pointermove', pointTurretAtPointer);
+    this.input.on('pointerdown', pointTurretAtPointer);
 
     this.director.subscribe((snapshot) => {
       this.snapshot = snapshot;
+      this.time.paused = snapshot.phase === 'paused';
       if (snapshot.phase === 'playing' && snapshot.runSerial !== this.lastRunSerial) {
         this.startMission(snapshot);
       }
@@ -488,7 +547,6 @@ export class BattleScene extends Phaser.Scene {
     const mission = this.mission;
     if (!snapshot || !player || !mission || snapshot.phase !== 'playing') {
       this.audio?.setEngineLoad(0);
-      this.render();
       return;
     }
 
@@ -500,6 +558,7 @@ export class BattleScene extends Phaser.Scene {
     this.updatePlayer(player, mission, snapshot.tankStats, dt, delta);
     this.updateEscort(dt);
     this.updateEnemies(player, mission, snapshot.difficulty, dt, delta);
+    this.resolveTankCollisions(mission);
     this.updateConvoyEscapeState(mission, delta);
     this.updateProjectiles(dt);
     this.updateExplosions(delta);
@@ -512,15 +571,21 @@ export class BattleScene extends Phaser.Scene {
     this.updateShield(player, snapshot.tankStats, dt, delta);
     this.updateMissionState(mission, delta);
     this.updateCamera(mission, player);
-    this.onHud(this.buildHudSnapshot(snapshot, mission, player));
+    this.hudUpdateElapsed += delta;
+    if (this.hudUpdateElapsed >= HUD_UPDATE_INTERVAL_MS) {
+      this.hudUpdateElapsed %= HUD_UPDATE_INTERVAL_MS;
+      this.onHud(this.buildHudSnapshot(snapshot, mission, player));
+    }
     this.render();
   }
 
   private startMission(snapshot: SessionSnapshot): void {
     const mission = snapshot.currentMission;
+    this.missionGeneration += 1;
     this.lastRunSerial = snapshot.runSerial;
     this.mission = mission;
     this.missionElapsed = 0;
+    this.hudUpdateElapsed = 0;
     this.defenseHeldMs = 0;
     this.missionResolved = false;
     this.projectiles = [];
@@ -714,14 +779,6 @@ export class BattleScene extends Phaser.Scene {
         y: player.y + Math.sin(player.turretAngle) * 240,
       };
     } else {
-      const pointer = this.input.activePointer;
-      const virtualActionHeld = this.gamepad.isDown(1, 'fire')
-        || this.gamepad.isDown(1, 'secondary')
-        || this.gamepad.isDown(1, 'special')
-        || this.gamepad.isDown(1, 'repair');
-      if (pointer && !virtualActionHeld) {
-        this.lastPointerWorld = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      }
       player.turretAngle = Math.atan2(this.lastPointerWorld.y - player.y, this.lastPointerWorld.x - player.x);
     }
 
@@ -735,7 +792,9 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.wantsSecondary() && this.secondaryTimer <= 0) {
       const weapon = this.getSelectedWeapon();
-      this.secondaryCooldownMax = stats.secondaryCooldownMs * weapon.cooldownScale;
+      const weaponLevel = this.snapshot?.weaponLevels[weapon.id] ?? 1;
+      const upgradeSteps = Math.max(0, weaponLevel - 1);
+      this.secondaryCooldownMax = stats.secondaryCooldownMs * weapon.cooldownScale * Math.pow(0.9, upgradeSteps);
       this.secondaryTimer = this.secondaryCooldownMax;
       this.fireSelectedWeapon(player, stats, weapon);
     }
@@ -776,7 +835,8 @@ export class BattleScene extends Phaser.Scene {
     const pointer = this.input.activePointer;
     const keyboardFire = Boolean(keys?.fire.isDown || (keys?.fire && Phaser.Input.Keyboard.JustDown(keys.fire)));
     const virtualFire = this.gamepad.consumeJustPressed(1, 'fire') || this.gamepad.isDown(1, 'fire');
-    return Boolean(keyboardFire || pointer?.leftButtonDown() || virtualFire);
+    const mouseFire = pointer && !pointer.wasTouch && pointer.leftButtonDown();
+    return Boolean(keyboardFire || mouseFire || virtualFire);
   }
 
   private wantsSecondary(): boolean {
@@ -892,6 +952,61 @@ export class BattleScene extends Phaser.Scene {
           shot.color,
           shot.style,
         );
+      }
+    }
+  }
+
+  private resolveTankCollisions(mission: MissionConfig): void {
+    if (!this.player?.alive) {
+      return;
+    }
+
+    const tanks = [this.player, ...this.enemies.filter((enemy) => enemy.alive)];
+    for (let firstIndex = 0; firstIndex < tanks.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < tanks.length; secondIndex += 1) {
+        const first = tanks[firstIndex];
+        const second = tanks[secondIndex];
+        // Infantry intentionally remain crushable and can slip between hulls.
+        if (isInfantry(first.kind) || isInfantry(second.kind)) {
+          continue;
+        }
+
+        const dx = second.x - first.x;
+        const dy = second.y - first.y;
+        const minimumDistance = first.radius + second.radius;
+        const distance = Math.hypot(dx, dy);
+        if (distance >= minimumDistance) {
+          continue;
+        }
+
+        const normalX = distance > 0.001 ? dx / distance : firstIndex % 2 === 0 ? 1 : -1;
+        const normalY = distance > 0.001 ? dy / distance : 0;
+        const overlap = minimumDistance - distance;
+        const firstMovable = first.kind !== 'turret';
+        const secondMovable = second.kind !== 'turret';
+        const movableCount = Number(firstMovable) + Number(secondMovable);
+        if (movableCount === 0) {
+          continue;
+        }
+
+        if (firstMovable) {
+          first.x -= normalX * overlap / movableCount;
+          first.y -= normalY * overlap / movableCount;
+          first.vx *= 0.62;
+          first.vy *= 0.62;
+        }
+        if (secondMovable) {
+          second.x += normalX * overlap / movableCount;
+          second.y += normalY * overlap / movableCount;
+          second.vx *= 0.62;
+          second.vy *= 0.62;
+        }
+
+        for (const tank of [first, second]) {
+          tank.x = clamp(tank.x, tank.radius, mission.worldWidth - tank.radius);
+          tank.y = clamp(tank.y, tank.radius, mission.worldHeight - tank.radius);
+          this.resolveTankCoverCollision(tank);
+        }
       }
     }
   }
@@ -1042,27 +1157,83 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (projectile.team === 'player') {
-        const target = this.enemies.find((enemy) => enemy.alive
-          && !projectile.hitTankIds.includes(enemy.id)
-          && Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y) <= enemy.radius + projectile.radius);
-        if (target) {
-          this.damageTank(target, projectile.damage, projectile, projectile.blastRadius);
+        const targets = this.enemies
+          .filter((enemy) => enemy.alive && !projectile.hitTankIds.includes(enemy.id))
+          .map((enemy) => ({
+            enemy,
+            hitTime: segmentPointHitTime(
+              projectile.previousX,
+              projectile.previousY,
+              projectile.x,
+              projectile.y,
+              enemy.x,
+              enemy.y,
+              enemy.radius + projectile.radius,
+            ),
+          }))
+          .filter((candidate): candidate is { enemy: TankRuntime; hitTime: number } => candidate.hitTime !== null)
+          .sort((a, b) => a.hitTime - b.hitTime);
+
+        for (const { enemy, hitTime } of targets) {
+          if (!enemy.alive) {
+            continue;
+          }
+
+          const impactProjectile = {
+            ...projectile,
+            x: Phaser.Math.Linear(projectile.previousX, projectile.x, hitTime),
+            y: Phaser.Math.Linear(projectile.previousY, projectile.y, hitTime),
+          };
+          this.damageTank(enemy, projectile.damage, impactProjectile, projectile.blastRadius);
           if (projectile.pierceRemaining > 0) {
             projectile.pierceRemaining -= 1;
-            projectile.hitTankIds.push(target.id);
+            projectile.hitTankIds.push(enemy.id);
           } else {
             projectile.ttl = -1;
+            break;
           }
         }
-      } else if (this.player && Phaser.Math.Distance.Between(projectile.x, projectile.y, this.player.x, this.player.y) <= this.player.radius + projectile.radius) {
-        this.damageTank(this.player, projectile.damage, projectile, projectile.blastRadius);
-        projectile.ttl = -1;
-      } else if (this.escort && Phaser.Math.Distance.Between(projectile.x, projectile.y, this.escort.x, this.escort.y) <= 34 + projectile.radius) {
-        this.escort.health -= projectile.damage * 0.8;
-        this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
-        projectile.ttl = -1;
-        if (this.escort.health <= 0) {
-          this.failMission('Escort destroyed');
+      } else {
+        const playerHitTime = this.player
+          ? segmentPointHitTime(
+              projectile.previousX,
+              projectile.previousY,
+              projectile.x,
+              projectile.y,
+              this.player.x,
+              this.player.y,
+              this.player.radius + projectile.radius,
+            )
+          : null;
+        const escortHitTime = this.escort
+          ? segmentPointHitTime(
+              projectile.previousX,
+              projectile.previousY,
+              projectile.x,
+              projectile.y,
+              this.escort.x,
+              this.escort.y,
+              34 + projectile.radius,
+            )
+          : null;
+
+        if (this.player && playerHitTime !== null && (escortHitTime === null || playerHitTime <= escortHitTime)) {
+          const impactProjectile = {
+            ...projectile,
+            x: Phaser.Math.Linear(projectile.previousX, projectile.x, playerHitTime),
+            y: Phaser.Math.Linear(projectile.previousY, projectile.y, playerHitTime),
+          };
+          this.damageTank(this.player, projectile.damage, impactProjectile, projectile.blastRadius);
+          projectile.ttl = -1;
+        } else if (this.escort && escortHitTime !== null) {
+          const impactX = Phaser.Math.Linear(projectile.previousX, projectile.x, escortHitTime);
+          const impactY = Phaser.Math.Linear(projectile.previousY, projectile.y, escortHitTime);
+          this.escort.health -= projectile.damage * 0.8;
+          this.createExplosion(impactX, impactY, projectile.blastRadius, projectile.color);
+          projectile.ttl = -1;
+          if (this.escort.health <= 0) {
+            this.failMission('Escort destroyed');
+          }
         }
       }
     }
@@ -1103,42 +1274,59 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private handleProjectileCoverHit(projectile: ProjectileRuntime): boolean {
+    let nearest: { cover: CoverRuntime; hitTime: number } | undefined;
     for (const cover of this.covers) {
       if (cover.health <= 0 || cover.kind === 'repair' || cover.spent) {
         continue;
       }
 
-      const hit = cover.kind === 'mine'
-        ? Phaser.Math.Distance.Between(projectile.x, projectile.y, cover.x, cover.y) < 32
-        : rectContainsPoint(cover, projectile.x, projectile.y);
-      if (!hit) {
+      const hitTime = cover.kind === 'mine'
+        ? segmentPointHitTime(
+            projectile.previousX,
+            projectile.previousY,
+            projectile.x,
+            projectile.y,
+            cover.x,
+            cover.y,
+            32 + projectile.radius,
+          )
+        : segmentRectHitTime(projectile, cover);
+      if (hitTime === null || (nearest && hitTime >= nearest.hitTime)) {
         continue;
       }
 
-      if (cover.kind === 'barrel') {
-        cover.health = 0;
-        cover.spent = true;
-        this.createExplosion(cover.x, cover.y, 145, 0xff9b42);
-        this.dropCash(cover.x, cover.y, 12);
-        this.damageArea(cover.x, cover.y, 145, projectile.damage * 1.2, projectile.team);
-      } else if (cover.kind === 'mine') {
-        cover.health = 0;
-        cover.spent = true;
-        this.createExplosion(cover.x, cover.y, 118, 0xff7055);
-        this.damageArea(cover.x, cover.y, 118, projectile.damage, projectile.team);
-      } else {
-        cover.health -= projectile.damage;
-        this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
-        if (cover.health <= 0) {
-          this.addFloatingText(cover.x, cover.y - 28, 'Cover Broken', 0xf0c15a);
-          this.dropCash(cover.x, cover.y, cover.kind === 'concrete' ? 22 : 14);
-        }
-      }
-
-      return true;
+      nearest = { cover, hitTime };
     }
 
-    return false;
+    if (!nearest) {
+      return false;
+    }
+
+    const { cover, hitTime } = nearest;
+    projectile.x = Phaser.Math.Linear(projectile.previousX, projectile.x, hitTime);
+    projectile.y = Phaser.Math.Linear(projectile.previousY, projectile.y, hitTime);
+
+    if (cover.kind === 'barrel') {
+      cover.health = 0;
+      cover.spent = true;
+      this.createExplosion(cover.x, cover.y, 145, 0xff9b42);
+      this.dropCash(cover.x, cover.y, 12);
+      this.damageArea(cover.x, cover.y, 145, projectile.damage * 1.2, projectile.team);
+    } else if (cover.kind === 'mine') {
+      cover.health = 0;
+      cover.spent = true;
+      this.createExplosion(cover.x, cover.y, 118, 0xff7055);
+      this.damageArea(cover.x, cover.y, 118, projectile.damage, projectile.team);
+    } else {
+      cover.health -= projectile.damage;
+      this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
+      if (cover.health <= 0) {
+        this.addFloatingText(cover.x, cover.y - 28, 'Cover Broken', 0xf0c15a);
+        this.dropCash(cover.x, cover.y, cover.kind === 'concrete' ? 22 : 14);
+      }
+    }
+
+    return true;
   }
 
   private updateExplosions(delta: number): void {
@@ -1217,7 +1405,7 @@ export class BattleScene extends Phaser.Scene {
   private updateMines(player: TankRuntime): void {
     const targets = [player, ...this.enemies.filter((enemy) => enemy.alive)];
     for (const mine of this.covers) {
-      if (mine.kind !== 'mine' || mine.spent) {
+      if (mine.kind !== 'mine' || mine.spent || mine.health <= 0) {
         continue;
       }
 
@@ -1344,6 +1532,10 @@ export class BattleScene extends Phaser.Scene {
 
   private drawPickups(graphics: Phaser.GameObjects.Graphics): void {
     for (const pickup of this.pickups) {
+      if (!this.isVisible(pickup.x, pickup.y, 32)) {
+        continue;
+      }
+
       const bob = Math.sin((pickup.age + pickup.value * 90) / 260) * 3;
       const fading = pickup.age > pickup.ttl - 3000;
       const alpha = fading ? 0.35 + 0.65 * Math.abs(Math.sin(pickup.age / 120)) : 1;
@@ -1386,7 +1578,7 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      label.setVisible(true);
+      label.setVisible(this.isVisible(pickup.x, pickup.y, 32));
       label.setText(`$${pickup.value}`);
       label.setPosition(pickup.x, pickup.y - 16);
     }
@@ -1456,8 +1648,11 @@ export class BattleScene extends Phaser.Scene {
     this.addFloatingText(this.player.x, this.player.y - 70, 'Mission Clear', 0xa2db7c);
     this.audio?.setEngineLoad(0);
     this.audio?.playSfx('mission-clear', 0.9);
+    const generation = this.missionGeneration;
     this.time.delayedCall(600, () => {
-      this.director.completeCurrentMission({ score, scrap });
+      if (generation === this.missionGeneration) {
+        this.director.completeCurrentMission({ score, scrap });
+      }
     });
   }
 
@@ -1472,7 +1667,12 @@ export class BattleScene extends Phaser.Scene {
     if (this.player) {
       this.addFloatingText(this.player.x, this.player.y - 70, reason, 0xff845f);
     }
-    this.time.delayedCall(900, () => this.director.failMission(reason));
+    const generation = this.missionGeneration;
+    this.time.delayedCall(900, () => {
+      if (generation === this.missionGeneration) {
+        this.director.failMission(reason);
+      }
+    });
   }
 
   private fireProjectile(
@@ -1534,14 +1734,17 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private fireSelectedWeapon(player: TankRuntime, stats: TankStats, weapon: WeaponSpec): void {
-    const damage = stats.shellDamage * weapon.damageScale;
-    const speed = stats.shellSpeed * weapon.speedScale;
+    const weaponLevel = this.snapshot?.weaponLevels[weapon.id] ?? 1;
+    const upgradeSteps = Math.max(0, weaponLevel - 1);
+    const damage = stats.shellDamage * weapon.damageScale * Math.pow(1.18, upgradeSteps);
+    const speed = stats.shellSpeed * weapon.speedScale * Math.pow(1.05, upgradeSteps);
     const aim = { ...this.lastPointerWorld };
+    const generation = this.missionGeneration;
 
     for (let index = 0; index < weapon.shots; index += 1) {
       const spreadStep = weapon.shots > 1 ? weapon.spread * (index / (weapon.shots - 1) - 0.5) : 0;
       const launch = (): void => {
-        if (!player.alive) {
+        if (generation !== this.missionGeneration || this.player !== player || !player.alive || this.snapshot?.phase !== 'playing') {
           return;
         }
 
@@ -1734,9 +1937,12 @@ export class BattleScene extends Phaser.Scene {
     this.playSpatialSfx('explosion', x, y, 0.6);
 
     const pulses = 5;
+    const generation = this.missionGeneration;
     for (let index = 0; index < pulses; index += 1) {
       this.time.delayedCall(index * (GAS_CLOUD_DURATION_MS / pulses), () => {
-        this.damageArea(x, y, radius, damage, team);
+        if (generation === this.missionGeneration && this.snapshot?.phase === 'playing') {
+          this.damageArea(x, y, radius, damage, team);
+        }
       });
     }
   }
@@ -1745,8 +1951,13 @@ export class BattleScene extends Phaser.Scene {
     const target = this.getArtilleryTarget();
     this.addFloatingText(target.x, target.y - 52, 'Artillery', 0xffd27a);
     this.audio?.playSfx('artillery', 0.85);
+    const generation = this.missionGeneration;
     for (let index = 0; index < 4; index += 1) {
       this.time.delayedCall(index * 155, () => {
+        if (generation !== this.missionGeneration || this.snapshot?.phase !== 'playing') {
+          return;
+        }
+
         const offsetAngle = index * Math.PI * 0.5 + 0.35;
         const radius = index === 0 ? 0 : 58;
         const x = clamp(target.x + Math.cos(offsetAngle) * radius, 60, this.mission?.worldWidth ?? target.x);
@@ -1846,6 +2057,7 @@ export class BattleScene extends Phaser.Scene {
       weapon: {
         id: snapshot.selectedWeapon,
         label: WEAPONS[snapshot.selectedWeapon].label,
+        level: snapshot.weaponLevels[snapshot.selectedWeapon] ?? 1,
         unlockedCount: snapshot.unlockedWeapons.length,
       },
       boss: bossStatus,
@@ -1910,19 +2122,35 @@ export class BattleScene extends Phaser.Scene {
     this.drawExplosions(graphics);
   }
 
+  private isVisible(x: number, y: number, padding: number): boolean {
+    const view = this.cameras.main.worldView;
+    return x + padding >= view.left
+      && x - padding <= view.right
+      && y + padding >= view.top
+      && y - padding <= view.bottom;
+  }
+
   private drawTerrain(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
+    const view = this.cameras.main.worldView;
+    const left = clamp(view.left - 80, 0, mission.worldWidth);
+    const top = clamp(view.top - 80, 0, mission.worldHeight);
+    const right = clamp(view.right + 80, 0, mission.worldWidth);
+    const bottom = clamp(view.bottom + 80, 0, mission.worldHeight);
     graphics.fillStyle(mission.palette.ground, 1);
-    graphics.fillRect(0, 0, mission.worldWidth, mission.worldHeight);
+    graphics.fillRect(left, top, right - left, bottom - top);
     graphics.fillStyle(mission.palette.shadow, 0.28);
-    for (let x = 0; x < mission.worldWidth; x += 180) {
-      graphics.fillRect(x, 0, 2, mission.worldHeight);
+    for (let x = Math.floor(left / 180) * 180; x <= right; x += 180) {
+      graphics.fillRect(x, top, 2, bottom - top);
     }
-    for (let y = 0; y < mission.worldHeight; y += 180) {
-      graphics.fillRect(0, y, mission.worldWidth, 2);
+    for (let y = Math.floor(top / 180) * 180; y <= bottom; y += 180) {
+      graphics.fillRect(left, y, right - left, 2);
     }
     if (mission.palette.water) {
-      graphics.fillStyle(mission.palette.water, 0.58);
-      graphics.fillRect(0, mission.worldHeight * 0.72, mission.worldWidth, 90);
+      const waterTop = mission.worldHeight * 0.72;
+      if (waterTop + 90 >= top && waterTop <= bottom) {
+        graphics.fillStyle(mission.palette.water, 0.58);
+        graphics.fillRect(left, waterTop, right - left, 90);
+      }
     }
 
     if (mission.kind === 'assault' && mission.exitX) {
@@ -1932,7 +2160,8 @@ export class BattleScene extends Phaser.Scene {
 
   private drawExitLane(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
     const exitX = mission.exitX;
-    if (!exitX) {
+    const view = this.cameras.main.worldView;
+    if (!exitX || exitX < view.left - 40 || exitX > view.right + 40) {
       return;
     }
 
@@ -1940,24 +2169,28 @@ export class BattleScene extends Phaser.Scene {
     const laneHalf = 18;
 
     graphics.fillStyle(0xff6b4a, active ? 0.34 : 0.18);
-    graphics.fillRect(exitX - laneHalf, 0, laneHalf * 2, mission.worldHeight);
+    graphics.fillRect(exitX - laneHalf, view.top, laneHalf * 2, view.height);
 
     const stripeSpacing = 34;
     const scrollSpeed = active ? 16 : 42;
     const offset = (this.missionElapsed / scrollSpeed) % stripeSpacing;
     graphics.lineStyle(7, active ? 0xff8a5b : 0xffd27a, active ? 0.5 : 0.24);
-    for (let sy = -stripeSpacing * 2; sy < mission.worldHeight + stripeSpacing * 2; sy += stripeSpacing) {
+    const firstStripe = Math.floor(view.top / stripeSpacing) * stripeSpacing - stripeSpacing * 2;
+    for (let sy = firstStripe; sy < view.bottom + stripeSpacing * 2; sy += stripeSpacing) {
       const y = sy + offset;
       graphics.lineBetween(exitX - laneHalf, y, exitX + laneHalf, y - laneHalf * 2);
     }
 
     graphics.lineStyle(4, 0xffd27a, active ? 0.95 : 0.58);
-    graphics.lineBetween(exitX - laneHalf, 0, exitX - laneHalf, mission.worldHeight);
-    graphics.lineBetween(exitX + laneHalf, 0, exitX + laneHalf, mission.worldHeight);
+    graphics.lineBetween(exitX - laneHalf, view.top, exitX - laneHalf, view.bottom);
+    graphics.lineBetween(exitX + laneHalf, view.top, exitX + laneHalf, view.bottom);
   }
 
   private drawCaptureZones(graphics: Phaser.GameObjects.Graphics): void {
     for (const zone of this.captureZones) {
+      if (!this.isVisible(zone.x, zone.y, zone.radius + 24)) {
+        continue;
+      }
       const captured = zone.progress >= 1;
       const color = captured ? 0xa2db7c : 0xf0c15a;
       const pulse = 0.5 + 0.5 * Math.sin(this.missionElapsed / 380);
@@ -1991,7 +2224,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawEscort(graphics: Phaser.GameObjects.Graphics): void {
-    if (!this.escort) {
+    if (!this.escort || !this.isVisible(this.escort.x, this.escort.y, 60)) {
       return;
     }
 
@@ -2004,7 +2237,7 @@ export class BattleScene extends Phaser.Scene {
 
   private drawCovers(graphics: Phaser.GameObjects.Graphics): void {
     for (const cover of this.covers) {
-      if (cover.health <= 0 || cover.spent) {
+      if (cover.health <= 0 || cover.spent || !this.isVisible(cover.x, cover.y, Math.max(cover.width, cover.height) * 0.6 + 24)) {
         continue;
       }
 
@@ -2210,6 +2443,9 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
+      if (!this.isVisible(projectile.x, projectile.y, Math.max(220, projectile.blastRadius))) {
+        continue;
+      }
       if (projectile.kind === 'gas') {
         this.drawMortarShell(graphics, projectile);
       } else if (projectile.sourceKind === 'rifleman') {
@@ -2381,7 +2617,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     for (const enemy of this.enemies) {
-      if (!enemy.alive) {
+      if (!enemy.alive || !this.isVisible(enemy.x, enemy.y, enemy.radius + 90)) {
         continue;
       }
 
@@ -2680,6 +2916,10 @@ export class BattleScene extends Phaser.Scene {
 
   private drawExplosions(graphics: Phaser.GameObjects.Graphics): void {
     for (const explosion of this.explosions) {
+      if (!this.isVisible(explosion.x, explosion.y, explosion.radius * 1.7)) {
+        continue;
+      }
+
       const progress = clamp(explosion.age / explosion.duration, 0, 1);
       const easeOut = 1 - (1 - progress) * (1 - progress);
 

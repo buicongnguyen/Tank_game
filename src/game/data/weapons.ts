@@ -310,6 +310,14 @@ export const WEAPON_ORDER: WeaponId[] = [
 export const PURCHASABLE_WEAPONS: WeaponId[] = ['shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb'];
 
 export const WEAPON_PRICE: Partial<Record<WeaponId, number>> = {
+  rocket: 180,
+  rifle: 140,
+  launcher: 200,
+  autocannon: 320,
+  mortar: 400,
+  railgun: 560,
+  scattergun: 260,
+  homing: 520,
   shotgun: 220,
   machineGun: 340,
   sniper: 480,
@@ -318,8 +326,20 @@ export const WEAPON_PRICE: Partial<Record<WeaponId, number>> = {
   gasBomb: 520,
 };
 
+export const MAX_WEAPON_LEVEL = 4;
+
+export function weaponShopPrice(id: WeaponId, level: number): number {
+  const basePrice = WEAPON_PRICE[id] ?? 240;
+  return level <= 0 ? basePrice : Math.round(basePrice * (1 + level * 0.65));
+}
+
 export function weaponsUnlockedAt(missionIndex: number): WeaponId[] {
-  return WEAPON_ORDER.filter((id) => WEAPONS[id].unlockAtMissionIndex <= missionIndex);
+  // Mission-zero weapons are class loadouts, not shared unlocks. Including all
+  // of them here gave every class the rifle, launcher, and rocket immediately.
+  return WEAPON_ORDER.filter((id) => {
+    const unlockIndex = WEAPONS[id].unlockAtMissionIndex;
+    return unlockIndex > 0 && unlockIndex <= missionIndex;
+  });
 }
 
 export function weaponUnlockedAtMission(missionIndex: number): WeaponId | undefined {

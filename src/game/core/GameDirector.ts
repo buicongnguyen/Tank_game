@@ -1,5 +1,12 @@
 import { STAGES } from '../data/stages';
-import { PURCHASABLE_WEAPONS, WEAPON_PRICE, WEAPONS, weaponsUnlockedAt, weaponUnlockedAtMission } from '../data/weapons';
+import {
+  MAX_WEAPON_LEVEL,
+  PURCHASABLE_WEAPONS,
+  WEAPONS,
+  weaponShopPrice,
+  weaponsUnlockedAt,
+  weaponUnlockedAtMission,
+} from '../data/weapons';
 import { CHASSIS_PRICE, cloneClassStats, nextChassis, PLAYER_CLASSES } from '../data/playerClasses';
 import { SHOP_STATS, statPrice } from '../data/shop';
 import type {
@@ -97,6 +104,7 @@ export class GameDirector {
   private credits = 0;
   private statLevels: Partial<Record<ShopItemId, number>> = {};
   private boughtWeapons: WeaponId[] = [];
+  private weaponLevels: Partial<Record<WeaponId, number>> = {};
 
   constructor(missions: MissionConfig[] = STAGES) {
     this.missions = missions;
@@ -133,6 +141,7 @@ export class GameDirector {
       pendingUpgrades: [...this.pendingUpgrades],
       unlockedWeapons: this.getUnlockedWeapons(),
       selectedWeapon: this.selectedWeapon,
+      weaponLevels: this.getWeaponLevelsSnapshot(),
       playerClass: this.playerClass,
       credits: this.credits,
       shop: this.getShopEntries(),
@@ -155,6 +164,7 @@ export class GameDirector {
         level: PLAYER_CLASSES[this.playerClass].tier,
         maxLevel: 3,
         owned: false,
+        maxed: false,
         affordable: this.credits >= price,
       });
     }
@@ -170,24 +180,32 @@ export class GameDirector {
         price,
         level,
         maxLevel: spec.maxLevel,
-        owned: level >= spec.maxLevel,
+        owned: level > 0,
+        maxed: level >= spec.maxLevel,
         affordable: this.credits >= price && level < spec.maxLevel,
       });
     }
 
-    for (const weaponId of PURCHASABLE_WEAPONS) {
-      const price = WEAPON_PRICE[weaponId] ?? 0;
-      const owned = this.boughtWeapons.includes(weaponId);
+    const unlockedWeapons = this.getUnlockedWeapons();
+    const shopWeapons = [...unlockedWeapons, ...PURCHASABLE_WEAPONS]
+      .filter((id, index, all) => all.indexOf(id) === index);
+    for (const weaponId of shopWeapons) {
+      const owned = unlockedWeapons.includes(weaponId);
+      const level = owned ? this.getWeaponLevel(weaponId) : 0;
+      const price = weaponShopPrice(weaponId, level);
       entries.push({
         id: weaponId,
         kind: 'weapon',
         label: WEAPONS[weaponId].label,
-        description: WEAPONS[weaponId].description,
+        description: owned
+          ? `${WEAPONS[weaponId].description} Upgrade damage, velocity, and cooldown.`
+          : WEAPONS[weaponId].description,
         price,
-        level: owned ? 1 : 0,
-        maxLevel: 1,
+        level,
+        maxLevel: MAX_WEAPON_LEVEL,
         owned,
-        affordable: !owned && this.credits >= price,
+        maxed: level >= MAX_WEAPON_LEVEL,
+        affordable: level < MAX_WEAPON_LEVEL && this.credits >= price,
       });
     }
 
@@ -203,6 +221,7 @@ export class GameDirector {
       this.boughtWeapons.push(id);
     }
 
+    this.weaponLevels[id] = Math.max(1, this.weaponLevels[id] ?? 0);
     this.selectedWeapon = id;
     this.emit();
   }
@@ -216,13 +235,19 @@ export class GameDirector {
   }
 
   addCredits(amount: number): void {
-    this.credits += Math.max(0, Math.round(amount));
+    const credits = Math.max(0, Math.round(amount));
+    if (credits <= 0) {
+      return;
+    }
+
+    this.credits += credits;
+    this.emit();
   }
 
   /** Spend credits on a shop line. Returns false when it was not affordable. */
   buyShopItem(id: ShopItemId | WeaponId): boolean {
     const entry = this.getShopEntries().find((candidate) => candidate.id === id);
-    if (!entry || entry.owned || !entry.affordable) {
+    if (!entry || entry.maxed || !entry.affordable) {
       return false;
     }
 
@@ -234,8 +259,12 @@ export class GameDirector {
         this.switchChassis(upgrade);
       }
     } else if (entry.kind === 'weapon') {
-      this.boughtWeapons.push(id as WeaponId);
-      this.selectedWeapon = id as WeaponId;
+      const weaponId = id as WeaponId;
+      if (!this.boughtWeapons.includes(weaponId) && !this.getUnlockedWeapons().includes(weaponId)) {
+        this.boughtWeapons.push(weaponId);
+      }
+      this.weaponLevels[weaponId] = Math.min(MAX_WEAPON_LEVEL, entry.level + 1);
+      this.selectedWeapon = weaponId;
     } else {
       const spec = SHOP_STATS[id as Exclude<ShopItemId, 'chassis'>];
       spec.apply(this.tankStats);
@@ -261,6 +290,7 @@ export class GameDirector {
     }
 
     const starting = PLAYER_CLASSES[next].startingWeapon;
+    this.weaponLevels[starting] = Math.max(1, this.weaponLevels[starting] ?? 0);
     if (!this.getUnlockedWeapons().includes(this.selectedWeapon)) {
       this.selectedWeapon = starting;
     }
@@ -271,6 +301,16 @@ export class GameDirector {
     const starting = PLAYER_CLASSES[this.playerClass].startingWeapon;
     const all = [starting, ...progression, ...this.boughtWeapons];
     return all.filter((id, index) => all.indexOf(id) === index);
+  }
+
+  private getWeaponLevel(id: WeaponId): number {
+    return Math.max(1, this.weaponLevels[id] ?? 1);
+  }
+
+  private getWeaponLevelsSnapshot(): Partial<Record<WeaponId, number>> {
+    return Object.fromEntries(
+      this.getUnlockedWeapons().map((id) => [id, this.getWeaponLevel(id)]),
+    ) as Partial<Record<WeaponId, number>>;
   }
 
   cycleWeapon(direction: 1 | -1 = 1): void {
@@ -298,6 +338,7 @@ export class GameDirector {
     this.credits = 0;
     this.statLevels = {};
     this.boughtWeapons = [];
+    this.weaponLevels = { [PLAYER_CLASSES[playerClass].startingWeapon]: 1 };
     this.failureReason = undefined;
     this.completedMissions = 0;
     this.tankStats = applyDifficulty(cloneClassStats(playerClass), difficulty);
@@ -347,6 +388,7 @@ export class GameDirector {
     const unlocked = weaponUnlockedAtMission(this.currentMissionIndex);
     if (unlocked) {
       this.selectedWeapon = unlocked;
+      this.weaponLevels[unlocked] = Math.max(1, this.weaponLevels[unlocked] ?? 0);
     }
 
     this.runSerial += 1;
@@ -358,13 +400,21 @@ export class GameDirector {
   }
 
   addScore(points: number): void {
-    this.totalScore += Math.max(0, Math.round(points));
+    const score = Math.max(0, Math.round(points));
+    if (score <= 0) {
+      return;
+    }
+
+    this.totalScore += score;
+    this.emit();
   }
 
   completeCurrentMission(reward: { score: number; scrap: number }): void {
     this.failureReason = undefined;
-    this.addScore(reward.score);
-    this.scrap += Math.max(0, Math.round(reward.scrap));
+    this.totalScore += Math.max(0, Math.round(reward.score));
+    const salvage = Math.max(0, Math.round(reward.scrap));
+    this.scrap += salvage;
+    this.credits += salvage;
     this.completedMissions = Math.min(this.completedMissions + 1, this.missions.length);
 
     if (this.currentMissionIndex >= this.missions.length - 1) {

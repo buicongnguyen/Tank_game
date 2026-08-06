@@ -27,6 +27,7 @@ export class InterfaceController {
   private lastHudSignature = '';
   private selectedDifficulty: DifficultyMode = 'normal';
   private selectedClass: PlayerClassId = 'medium';
+  private intermissionView: 'summary' | 'shop' = 'summary';
 
   constructor(roots: InterfaceRoots, director: GameDirector, options: InterfaceOptions = {}) {
     this.hudRoot = roots.hudRoot;
@@ -58,7 +59,11 @@ export class InterfaceController {
     });
 
     this.director.subscribe((snapshot) => {
+      const previousPhase = this.sessionSnapshot.phase;
       this.sessionSnapshot = snapshot;
+      if (snapshot.phase !== 'intermission' || previousPhase !== 'intermission') {
+        this.intermissionView = 'summary';
+      }
       this.renderOverlay();
       this.renderIntel();
       this.renderHud();
@@ -105,6 +110,7 @@ export class InterfaceController {
       weapon: {
         id: this.sessionSnapshot.selectedWeapon,
         label: WEAPONS[this.sessionSnapshot.selectedWeapon].label,
+        level: this.sessionSnapshot.weaponLevels[this.sessionSnapshot.selectedWeapon] ?? 1,
         unlockedCount: this.sessionSnapshot.unlockedWeapons.length,
       },
     };
@@ -157,7 +163,7 @@ export class InterfaceController {
         <div class="hud-progress-line">${hud.progressText}</div>
         <div class="cooldown-strip cooldown-strip-slim">
           <span style="--fill:${Math.round(tank.reloadPercent * 100)}%">Cannon</span>
-          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}</span>
+          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label} L${hud.weapon.level}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}</span>
           <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
         </div>
       </div>
@@ -198,8 +204,25 @@ export class InterfaceController {
     const buyButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-buy]');
     for (const button of buyButtons) {
       button.addEventListener('click', () => {
-        this.playSfx?.('upgrade', 0.85);
-        this.director.buyShopItem(button.dataset.buy as ShopItemId | WeaponId);
+        if (this.director.buyShopItem(button.dataset.buy as ShopItemId | WeaponId)) {
+          this.playSfx?.('upgrade', 0.85);
+        }
+      });
+    }
+
+    const openShopButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-open-shop]');
+    for (const button of openShopButtons) {
+      button.addEventListener('click', () => {
+        this.intermissionView = 'shop';
+        this.renderOverlay();
+      });
+    }
+
+    const closeShopButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-close-shop]');
+    for (const button of closeShopButtons) {
+      button.addEventListener('click', () => {
+        this.intermissionView = 'summary';
+        this.renderOverlay();
       });
     }
 
@@ -272,14 +295,14 @@ export class InterfaceController {
               <h4>${group.title}</h4>
               <div class="shop-grid">
                 ${entries.map((entry) => `
-                  <button type="button" class="shop-card ${entry.owned ? 'is-owned' : ''}"
-                          data-buy="${entry.id}" ${entry.owned || !entry.affordable ? 'disabled' : ''}>
+                  <button type="button" class="shop-card ${entry.owned ? 'is-owned' : ''} ${entry.maxed ? 'is-maxed' : ''}"
+                          data-buy="${entry.id}" ${entry.maxed || !entry.affordable ? 'disabled' : ''}>
                     <strong>${entry.label}</strong>
                     <small>${entry.description}</small>
                     <span class="shop-price">
-                      ${entry.owned
-                        ? (entry.maxLevel > 1 ? `MAX (${entry.level}/${entry.maxLevel})` : 'Owned')
-                        : `$${entry.price}${entry.maxLevel > 1 ? ` &middot; Lv ${entry.level}/${entry.maxLevel}` : ''}`}
+                      ${entry.maxed
+                        ? `MAX &middot; Lv ${entry.level}/${entry.maxLevel}`
+                        : `$${entry.price} &middot; ${entry.owned || entry.kind === 'chassis' ? 'Upgrade' : 'Buy'} &middot; Lv ${entry.level}/${entry.maxLevel}`}
                     </span>
                   </button>
                 `).join('')}
@@ -327,7 +350,7 @@ export class InterfaceController {
         <h3>Battle Tank Inputs</h3>
         <ul>
           <li><strong>Keyboard</strong> WASD drives, mouse aims, Space fires, E fires the sidearm, X swaps it, Q calls artillery, R repairs.</li>
-          <li><strong>Mobile</strong> Left stick drives, right stick aims, buttons fire cannon, sidearm, swap, artillery, and repair.</li>
+          <li><strong>Mobile</strong> Left stick drives. Tap the battlefield to aim, then use the buttons for cannon, sidearm, swap, artillery, and repair.</li>
           <li><strong>Armor</strong> Face threats with the hull. Rear hits hurt much more than front hits.</li>
         </ul>
       </article>
@@ -456,13 +479,29 @@ export class InterfaceController {
       const incomingWeapon = Object.values(WEAPONS).find(
         (weapon) => weapon.unlockAtMissionIndex === snapshot.currentMissionIndex + 1,
       );
+
+      if (this.intermissionView === 'shop') {
+        return `
+          <section class="overlay-card tank-overlay-card shop-overlay-card">
+            <span class="overlay-kicker">Between Missions</span>
+            <h1>Field Depot</h1>
+            <p>Spend credits on a heavier chassis, permanent vehicle upgrades, new weapons, or weapon levels.</p>
+            ${this.renderShop(snapshot)}
+            <div class="overlay-actions shop-actions">
+              <button type="button" class="action-button" data-close-shop>Back to Debrief</button>
+              <button type="button" class="action-button primary" data-deploy>Deploy to ${nextMission?.codename ?? 'Next Mission'}</button>
+            </div>
+          </section>
+        `;
+      }
+
       return `
         <section class="overlay-card tank-overlay-card">
           <span class="overlay-kicker">Mission Clear</span>
           <h1>${mission.codename} Complete</h1>
           <p>
             Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
-            Salvage collected: <strong>$${snapshot.credits}</strong>. Spend it at the depot, then deploy.
+            Available credits: <strong>$${snapshot.credits}</strong>. Enter the depot to buy or upgrade equipment.
           </p>
           ${incomingWeapon ? `
             <p class="weapon-unlock-note">
@@ -470,9 +509,9 @@ export class InterfaceController {
               Press <strong>X</strong> in battle to swap between weapons.
             </p>
           ` : ''}
-          ${this.renderShop(snapshot)}
           <div class="overlay-actions">
-            <button type="button" class="action-button primary" data-deploy>Deploy to ${nextMission?.codename ?? 'Next Mission'}</button>
+            <button type="button" class="action-button primary" data-open-shop>Enter Shop</button>
+            <button type="button" class="action-button" data-deploy>Deploy Without Shopping</button>
           </div>
           <div class="overlay-notes">
             <span>Next: ${nextMission?.codename ?? 'Final Debrief'}</span>
