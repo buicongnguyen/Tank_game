@@ -1988,10 +1988,23 @@ a {
 
 .touch-controls-root[data-mode='desktop'] .touch-zone-drive .touch-stick-shell {
   left: 22px;
+  right: auto;
 }
 
+/* Aim pad sits beside the action buttons in the bottom-right corner rather than
+   floating over the middle of the battlefield. */
 .touch-controls-root[data-mode='desktop'] .touch-zone-aim .touch-stick-shell {
-  left: 22px;
+  left: auto;
+  right: 214px;
+}
+
+/* A finger on a touchscreen desktop still gets the floating pad. */
+.touch-controls-root[data-mode='desktop'] .touch-stick-shell[data-floating='true'] {
+  left: var(--origin-x, 50%);
+  top: var(--origin-y, 50%);
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
 }
 
 .touch-controls-root[data-mode='desktop'] .touch-actions {

@@ -272,6 +272,14 @@ const ENEMY_DETECT_RANGE = 540;
 const ENEMY_DISENGAGE_RANGE = 900;
 const PATROL_ARRIVE_RADIUS = 34;
 const PATROL_LEG_TIMEOUT_MS = 7000;
+/** Hull speed a tank needs before it can run infantry down. */
+const INFANTRY_CRUSH_SPEED = 90;
+/** Range at which infantry start sidestepping an oncoming tank. */
+const INFANTRY_DODGE_RANGE = 180;
+
+function isInfantry(kind: EnemyTankKind | 'player'): boolean {
+  return kind === 'rifleman' || kind === 'rocketeer';
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -469,6 +477,7 @@ export class BattleScene extends Phaser.Scene {
     this.updateCaptureZones(player, dt);
     this.updateRepairPads(player, snapshot.tankStats, dt);
     this.updateMines(player);
+    this.updateInfantryCrush(player);
     this.updateMissionState(mission, delta);
     this.updateCamera(mission, player);
     this.onHud(this.buildHudSnapshot(snapshot, mission, player));
@@ -803,6 +812,20 @@ export class BattleScene extends Phaser.Scene {
           enemy.vy = Math.sin(moveAngle) * enemy.speed * chase;
         } else {
           this.stepPatrol(enemy, delta);
+        }
+
+        // Infantry dive aside when a tank bears down on them, so crushing takes
+        // a deliberate line rather than just driving forward.
+        if (isInfantry(enemy.kind) && distanceToPlayer < INFANTRY_DODGE_RANGE) {
+          const closing = player.vx * (enemy.x - player.x) + player.vy * (enemy.y - player.y);
+          if (closing > 0 && Math.hypot(player.vx, player.vy) > INFANTRY_CRUSH_SPEED * 0.6) {
+            const away = angleToPlayer + Math.PI;
+            const sidestep = away + (Math.sin(enemy.x * 0.7 + enemy.y * 0.3) > 0 ? 1 : -1) * Math.PI * 0.5;
+            const urgency = 1 - distanceToPlayer / INFANTRY_DODGE_RANGE;
+            enemy.vx += Math.cos(sidestep) * enemy.speed * 1.9 * urgency;
+            enemy.vy += Math.sin(sidestep) * enemy.speed * 1.9 * urgency;
+            enemy.alerted = true;
+          }
         }
 
         enemy.x = clamp(enemy.x + enemy.vx * dt, enemy.radius, mission.worldWidth - enemy.radius);
@@ -1143,6 +1166,43 @@ export class BattleScene extends Phaser.Scene {
       mine.health = 0;
       this.createExplosion(mine.x, mine.y, 120, 0xff704f);
       this.damageArea(mine.x, mine.y, 120, 90, target.team === 'player' ? 'enemy' : 'player');
+    }
+  }
+
+  /**
+   * Tracks crush infantry. Previously the tank drove straight through soldiers
+   * with no interaction at all, which read as a bug. Crushing needs real speed,
+   * and alerted infantry scatter out of the way (see updateEnemies), so running
+   * a whole squad down is a commitment rather than a free win.
+   */
+  private updateInfantryCrush(player: TankRuntime): void {
+    if (!player.alive) {
+      return;
+    }
+
+    const speed = Math.hypot(player.vx, player.vy);
+    if (speed < INFANTRY_CRUSH_SPEED) {
+      return;
+    }
+
+    for (const enemy of this.enemies) {
+      if (!enemy.alive || !isInfantry(enemy.kind)) {
+        continue;
+      }
+
+      const distance = Phaser.Math.Distance.Between(player.x, player.y, enemy.x, enemy.y);
+      if (distance > player.radius + enemy.radius * 0.7) {
+        continue;
+      }
+
+      enemy.alive = false;
+      this.createExplosion(enemy.x, enemy.y, enemy.radius * 1.8, 0xbb4a20);
+      this.addFloatingText(enemy.x, enemy.y - 24, 'Crushed', 0xff7447);
+      this.director.addScore(Math.round(enemy.score * 0.6));
+
+      // shoving a body under the tracks costs a little momentum
+      player.vx *= 0.86;
+      player.vy *= 0.86;
     }
   }
 

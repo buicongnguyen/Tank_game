@@ -26,6 +26,7 @@ interface StickBinding {
   shell: HTMLElement;
   knob: HTMLElement;
   mode: 'drive' | 'aim';
+  release?: () => void;
 }
 
 export class TouchControlsOverlay {
@@ -207,31 +208,6 @@ export class TouchControlsOverlay {
       this.gamepad.setAction(1, 'fire', Math.hypot(nx, ny) > AUTO_FIRE_DEADZONE);
     };
 
-    const releaseStick = (event?: PointerEvent): void => {
-      if (event && event.pointerId !== pointerId) {
-        return;
-      }
-
-      if (event) {
-        event.preventDefault();
-        if (pointerId !== null && zone.hasPointerCapture(pointerId)) {
-          zone.releasePointerCapture(pointerId);
-        }
-      }
-
-      pointerId = null;
-      if (mode === 'drive') {
-        this.gamepad.setDriveAxis(0, 0);
-      } else {
-        this.gamepad.clearAimAxis();
-        this.gamepad.setAction(1, 'fire', false);
-      }
-
-      shell.dataset.engaged = 'false';
-      knob.style.setProperty('--stick-x', '0px');
-      knob.style.setProperty('--stick-y', '0px');
-    };
-
     const updateStick = (event: PointerEvent): void => {
       const rect = zone.getBoundingClientRect();
       const rawX = event.clientX - rect.left - originX;
@@ -246,7 +222,49 @@ export class TouchControlsOverlay {
       applyAxis(knobX / STICK_RADIUS, knobY / STICK_RADIUS);
     };
 
-    zone.addEventListener('pointerdown', (event) => {
+    // Move/up are tracked on the window rather than the zone. On the desktop
+    // layout the zone is click-through so the mouse can still reach the canvas,
+    // which means a drag that leaves the small pad would otherwise stop being
+    // delivered and the stick would appear to die mid-drag.
+    const onWindowMove = (event: PointerEvent): void => {
+      if (event.pointerId !== pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+      updateStick(event);
+    };
+
+    const onWindowUp = (event: PointerEvent): void => {
+      if (event.pointerId !== pointerId) {
+        return;
+      }
+
+      releaseStick();
+    };
+
+    const releaseStick = (): void => {
+      window.removeEventListener('pointermove', onWindowMove);
+      window.removeEventListener('pointerup', onWindowUp);
+      window.removeEventListener('pointercancel', onWindowUp);
+
+      pointerId = null;
+      if (mode === 'drive') {
+        this.gamepad.setDriveAxis(0, 0);
+      } else {
+        this.gamepad.clearAimAxis();
+        this.gamepad.setAction(1, 'fire', false);
+      }
+
+      shell.dataset.engaged = 'false';
+      delete shell.dataset.floating;
+      knob.style.setProperty('--stick-x', '0px');
+      knob.style.setProperty('--stick-y', '0px');
+    };
+
+    binding.release = releaseStick;
+
+    const startStick = (event: PointerEvent, floating: boolean): void => {
       if (pointerId !== null) {
         return;
       }
@@ -256,33 +274,55 @@ export class TouchControlsOverlay {
       const rect = zone.getBoundingClientRect();
       originX = event.clientX - rect.left;
       originY = event.clientY - rect.top;
-      placeShell(originX, originY);
-      shell.dataset.engaged = 'true';
-      try {
-        zone.setPointerCapture(event.pointerId);
-      } catch {
-        // capture is a nicety; the window-level listeners below still release us
+      if (floating) {
+        placeShell(originX, originY);
+        shell.dataset.floating = 'true';
+      } else {
+        // pressing the fixed desktop pad: treat its centre as the origin so the
+        // knob tracks the cursor from where the pad actually sits
+        const shellRect = shell.getBoundingClientRect();
+        originX = shellRect.left + shellRect.width / 2 - rect.left;
+        originY = shellRect.top + shellRect.height / 2 - rect.top;
       }
-      updateStick(event);
-    });
+      shell.dataset.engaged = 'true';
 
-    zone.addEventListener('pointermove', (event) => {
-      if (event.pointerId !== pointerId) {
+      window.addEventListener('pointermove', onWindowMove, { passive: false });
+      window.addEventListener('pointerup', onWindowUp);
+      window.addEventListener('pointercancel', onWindowUp);
+      updateStick(event);
+    };
+
+    // Touch layout: the whole zone is live and the pad floats to the thumb.
+    zone.addEventListener('pointerdown', (event) => {
+      startStick(event, this.root.dataset.mode === 'touch');
+    });
+    zone.addEventListener('contextmenu', (event) => event.preventDefault());
+
+    // Desktop layout with a touchscreen: the zone is click-through so the mouse
+    // reaches the canvas, but a finger should still get the floating stick.
+    window.addEventListener('pointerdown', (event) => {
+      if (pointerId !== null || this.root.hidden || this.root.dataset.mode === 'touch') {
         return;
       }
 
-      event.preventDefault();
-      updateStick(event);
-    });
-
-    zone.addEventListener('pointerup', releaseStick);
-    zone.addEventListener('pointercancel', releaseStick);
-    zone.addEventListener('lostpointercapture', () => {
-      if (pointerId !== null) {
-        releaseStick();
+      if (event.pointerType === 'mouse') {
+        return;
       }
-    });
-    zone.addEventListener('contextmenu', (event) => event.preventDefault());
+
+      // event.target is not always an Element (a window-dispatched event is not),
+      // so narrow before reaching for closest()
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.touch-button') || target?.closest('.touch-stick-shell')) {
+        return;
+      }
+
+      const rect = zone.getBoundingClientRect();
+      const inside = event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (inside) {
+        startStick(event, true);
+      }
+    }, { passive: false });
   }
 
   private bindButtons(): void {
@@ -343,10 +383,11 @@ export class TouchControlsOverlay {
   }
 
   private resetInputs(): void {
-    for (const { shell, knob } of this.sticks) {
-      shell.dataset.engaged = 'false';
-      knob.style.setProperty('--stick-x', '0px');
-      knob.style.setProperty('--stick-y', '0px');
+    for (const binding of this.sticks) {
+      binding.release?.();
+      binding.shell.dataset.engaged = 'false';
+      binding.knob.style.setProperty('--stick-x', '0px');
+      binding.knob.style.setProperty('--stick-y', '0px');
     }
     for (const reset of this.buttonResetters) {
       reset();
