@@ -488,6 +488,13 @@ export class BattleScene extends Phaser.Scene {
   private convoyWarningShown = false;
   private convoyBreachShown = false;
   private lastPointerWorld = { x: 400, y: 300 };
+  /**
+   * A mouse keeps hovering so it can aim at a world point, but a finger lifts
+   * off. Touch aiming therefore locks a heading, otherwise the turret keeps
+   * swinging to track the patch of ground that was tapped as the tank drives.
+   */
+  private aimMode: 'point' | 'heading' = 'point';
+  private aimHeading = 0;
 
   constructor(
     director: GameDirector,
@@ -520,7 +527,15 @@ export class BattleScene extends Phaser.Scene {
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
     const pointTurretAtPointer = (pointer: Phaser.Input.Pointer): void => {
-      this.lastPointerWorld = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      this.lastPointerWorld = { x: world.x, y: world.y };
+
+      if (pointer.wasTouch && this.player) {
+        this.aimHeading = Math.atan2(world.y - this.player.y, world.x - this.player.x);
+        this.aimMode = 'heading';
+      } else {
+        this.aimMode = 'point';
+      }
     };
     this.input.on('pointermove', pointTurretAtPointer);
     this.input.on('pointerdown', pointTurretAtPointer);
@@ -777,6 +792,13 @@ export class BattleScene extends Phaser.Scene {
       this.lastPointerWorld = {
         x: player.x + Math.cos(player.turretAngle) * 240,
         y: player.y + Math.sin(player.turretAngle) * 240,
+      };
+      this.aimHeading = player.turretAngle;
+    } else if (this.aimMode === 'heading') {
+      player.turretAngle = this.aimHeading;
+      this.lastPointerWorld = {
+        x: player.x + Math.cos(this.aimHeading) * 240,
+        y: player.y + Math.sin(this.aimHeading) * 240,
       };
     } else {
       player.turretAngle = Math.atan2(this.lastPointerWorld.y - player.y, this.lastPointerWorld.x - player.x);

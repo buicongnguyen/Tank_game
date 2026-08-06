@@ -25,6 +25,8 @@ export class InterfaceController {
   private hudSnapshot: HudSnapshot | null = null;
   private sessionSnapshot: SessionSnapshot;
   private lastHudSignature = '';
+  private lastOverlaySignature = '';
+  private lastIntelSignature = '';
   private selectedDifficulty: DifficultyMode = 'normal';
   private selectedClass: PlayerClassId = 'medium';
   private intermissionView: 'summary' | 'shop' = 'summary';
@@ -172,6 +174,29 @@ export class InterfaceController {
 
   private renderOverlay(): void {
     const snapshot = this.sessionSnapshot;
+
+    // addScore/addCredits emit on every kill and every coin, so without this
+    // guard a firefight rebuilt the whole overlay dozens of times a second.
+    // While playing the overlay renders nothing, so live wallet/score churn must
+    // not count as a change - otherwise every coin rebuilds an empty overlay.
+    const live = snapshot.phase === 'playing';
+    const signature = JSON.stringify({
+      phase: snapshot.phase,
+      mission: snapshot.currentMissionIndex,
+      credits: live ? 0 : snapshot.credits,
+      score: live ? 0 : snapshot.totalScore,
+      failure: snapshot.failureReason,
+      view: this.intermissionView,
+      cls: this.selectedClass,
+      difficulty: this.selectedDifficulty,
+      weapon: snapshot.selectedWeapon,
+      shop: live ? '' : snapshot.shop.map((entry) => `${entry.id}:${entry.level}:${entry.owned}:${entry.affordable}`),
+    });
+    if (signature === this.lastOverlaySignature) {
+      return;
+    }
+
+    this.lastOverlaySignature = signature;
     this.overlayRoot.innerHTML = this.getOverlayMarkup(snapshot);
 
     const difficultyButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-difficulty]');
@@ -339,6 +364,15 @@ export class InterfaceController {
 
   private renderIntel(): void {
     const snapshot = this.sessionSnapshot;
+
+    // The intel grid lists every mission and weapon; it only changes when the
+    // campaign moves on, never because the score ticked.
+    const signature = `${snapshot.currentMissionIndex}|${snapshot.missions.length}|${snapshot.unlockedWeapons.join(',')}`;
+    if (signature === this.lastIntelSignature) {
+      return;
+    }
+
+    this.lastIntelSignature = signature;
     this.intelRoot.innerHTML = `
       <article class="intel-card">
         <span class="intel-kicker">Tank Loop</span>
