@@ -2,9 +2,16 @@ export type SessionPhase = 'menu' | 'playing' | 'paused' | 'intermission' | 'gam
 export type DifficultyMode = 'easy' | 'normal' | 'hard' | 'extreme';
 export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
 export type EnemyTankKind = 'rifleman' | 'rocketeer' | 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
-export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair';
+export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair' | 'armory';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
-export type WeaponId = 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing';
+export type WeaponId =
+  | 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing'
+  // soldier-carried arms, named after the rambo_game weapon roster
+  | 'rifle' | 'shotgun' | 'sniper' | 'machineGun' | 'flamer' | 'launcher'
+  | 'laser' | 'gasBomb';
+export type PlayerClassId = 'rifleman' | 'rocketeer' | 'light' | 'medium' | 'heavy';
+export type ShopItemId =
+  | 'chassis' | 'armor' | 'shield' | 'engine' | 'reload' | 'damage' | 'repair';
 
 export interface StagePalette {
   sky: number;
@@ -81,6 +88,9 @@ export interface MissionConfig {
 
 export interface TankStats {
   maxHealth: number;
+  /** Absorbs damage before health and regenerates out of combat. */
+  shieldMax: number;
+  shieldRegen: number;
   armor: number;
   engine: number;
   turnRate: number;
@@ -98,9 +108,23 @@ export interface UpgradeOption {
   description: string;
 }
 
+export interface ShopEntry {
+  id: ShopItemId | WeaponId;
+  kind: 'stat' | 'weapon' | 'chassis';
+  label: string;
+  description: string;
+  price: number;
+  level: number;
+  maxLevel: number;
+  owned: boolean;
+  affordable: boolean;
+}
+
 export interface TankHudStatus {
   health: number;
   maxHealth: number;
+  shield: number;
+  shieldMax: number;
   armor: number;
   speed: number;
   reloadPercent: number;
@@ -129,6 +153,7 @@ export interface HudSnapshot {
   };
   totalScore: number;
   scrap: number;
+  credits: number;
   tank: TankHudStatus;
   weapon: {
     id: WeaponId;
@@ -154,4 +179,7 @@ export interface SessionSnapshot {
   pendingUpgrades: UpgradeOption[];
   unlockedWeapons: WeaponId[];
   selectedWeapon: WeaponId;
+  playerClass: PlayerClassId;
+  credits: number;
+  shop: ShopEntry[];
 }

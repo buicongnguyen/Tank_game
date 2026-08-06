@@ -50,6 +50,11 @@ function wallGate(id: string, x: number, y: number, gap = 190): CoverConfig[] {
   ];
 }
 
+/** Walk-over crate that hands the player a weapon they do not own yet. */
+function armory(id: string, x: number, y: number): CoverConfig[] {
+  return [{ id, kind: 'armory', x, y, width: 54, height: 44 }];
+}
+
 function clusters(...groups: CoverConfig[][]): CoverConfig[] {
   return groups.flat();
 }
@@ -72,6 +77,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x7d6a44,
     },
     covers: clusters(
+      armory('training-ground-armory', 1240, 700),
       commonCovers(),
       crateNest('tg-nest-a', 700, 620),
       barrelPair('tg-drums-a', 1120, 240),
@@ -104,6 +110,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x8a7448,
     },
     covers: clusters(
+      armory('rocket-picket-armory', 1300, 720),
       commonCovers(30),
       bunker('rp-bunker-a', 760, 300),
       crateNest('rp-nest-a', 1020, 660),
@@ -136,6 +143,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x6f7a80,
     },
     covers: clusters(
+      armory('mixed-picket-armory', 1500, 700),
       commonCovers(60),
       crateNest('mp-nest-a', 680, 300),
       bunker('mp-bunker-a', 980, 640),
@@ -171,6 +179,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x717a80,
     },
     covers: clusters(
+      armory('first-armor-armory', 1300, 760),
       commonCovers(90),
       bunker('fa-bunker-a', 720, 620),
       crateNest('fa-nest-a', 1040, 260),
@@ -206,6 +215,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x7b6a42,
     },
     covers: clusters(
+      armory('combined-arms-armory', 1520, 720),
       commonCovers(50),
       bunker('ca-bunker-a', 700, 300),
       crateNest('ca-nest-a', 960, 700),
@@ -244,6 +254,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x786440,
     },
     covers: clusters(
+      armory('convoy-break-armory', 1700, 780),
       commonCovers(),
       bunker('cb-bunker-a', 620, 520),
       crateNest('cb-nest-a', 980, 250),
@@ -281,6 +292,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x6a7378,
     },
     covers: clusters(
+      armory('relay-hold-armory', 1600, 200),
       commonCovers(80),
       [{ id: 'relay-core', kind: 'concrete', x: 1090, y: 460, width: 96, height: 96 }],
       // ring of hard cover around the relay so holding it is about angles
@@ -325,6 +337,7 @@ export const STAGES: MissionConfig[] = [
     // Escort lane sits around y 520, so the heavy clusters stay above and below
     // it and leave the truck a road to follow.
     covers: clusters(
+      armory('supply-run-armory', 1600, 380),
       commonCovers(120),
       [
         { id: 'bridge-west', kind: 'concrete', x: 1560, y: 470, width: 280, height: 72 },
@@ -374,6 +387,7 @@ export const STAGES: MissionConfig[] = [
       water: 0x1f5d6b,
     },
     covers: clusters(
+      armory('iron-triangle-armory', 1600, 250),
       commonCovers(180),
       [
         { id: 'triangle-bunker', kind: 'concrete', x: 2180, y: 510, width: 240, height: 110 },
@@ -421,6 +435,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x737982,
     },
     covers: clusters(
+      armory('fortress-core-armory', 1420, 640),
       commonCovers(80),
       [
         { id: 'gate-left', kind: 'concrete', x: 1850, y: 280, width: 250, height: 90 },
@@ -471,6 +486,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x7d8a92,
     },
     covers: clusters(
+      armory('frozen-pass-armory', 1560, 200),
       commonCovers(60),
       [
         { id: 'pass-wall-a', kind: 'concrete', x: 1180, y: 200, width: 210, height: 96 },
@@ -515,6 +531,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x8a6f47,
     },
     covers: clusters(
+      armory('ridge-bombard-armory', 1300, 200),
       commonCovers(40),
       [
         { id: 'ridge-core', kind: 'concrete', x: 1160, y: 500, width: 110, height: 110 },
@@ -561,6 +578,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x6c737a,
     },
     covers: clusters(
+      armory('rail-yard-armory', 1500, 880),
       commonCovers(140),
       [
         { id: 'yard-shed-a', kind: 'concrete', x: 1320, y: 260, width: 260, height: 96 },
@@ -618,6 +636,7 @@ export const STAGES: MissionConfig[] = [
     // Hauler runs along y 540; the ruins crowd in from both sides without
     // sealing the road shut.
     covers: clusters(
+      armory('ash-corridor-armory', 1500, 300),
       commonCovers(100),
       [
         { id: 'ash-block-a', kind: 'concrete', x: 1340, y: 300, width: 220, height: 100 },
@@ -671,6 +690,7 @@ export const STAGES: MissionConfig[] = [
       obstacle: 0x6b747f,
     },
     covers: clusters(
+      armory('iron-sovereign-armory', 1400, 800),
       commonCovers(60),
       [
         { id: 'sov-gate-a', kind: 'concrete', x: 1900, y: 240, width: 260, height: 100 },

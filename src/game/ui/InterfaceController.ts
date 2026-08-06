@@ -1,7 +1,8 @@
 import { GameDirector } from '../core/GameDirector';
 import { WEAPONS } from '../data/weapons';
+import { PLAYER_CLASSES } from '../data/playerClasses';
 import type { TankSfxCue } from '../audio/BattleMusic';
-import type { DifficultyMode, HudSnapshot, SessionSnapshot, UpgradeId } from '../types';
+import type { DifficultyMode, HudSnapshot, PlayerClassId, SessionSnapshot, ShopItemId, WeaponId } from '../types';
 
 interface InterfaceRoots {
   hudRoot: HTMLElement;
@@ -25,6 +26,7 @@ export class InterfaceController {
   private sessionSnapshot: SessionSnapshot;
   private lastHudSignature = '';
   private selectedDifficulty: DifficultyMode = 'normal';
+  private selectedClass: PlayerClassId = 'medium';
 
   constructor(roots: InterfaceRoots, director: GameDirector, options: InterfaceOptions = {}) {
     this.hudRoot = roots.hudRoot;
@@ -79,6 +81,8 @@ export class InterfaceController {
     const tank = this.hudSnapshot?.tank ?? {
       health: this.sessionSnapshot.tankStats.maxHealth,
       maxHealth: this.sessionSnapshot.tankStats.maxHealth,
+      shield: this.sessionSnapshot.tankStats.shieldMax,
+      shieldMax: this.sessionSnapshot.tankStats.shieldMax,
       armor: this.sessionSnapshot.tankStats.armor,
       speed: 0,
       reloadPercent: 1,
@@ -96,6 +100,7 @@ export class InterfaceController {
       enemyCount: { alive: 0, total: mission.enemies.length + (mission.boss ? 1 : 0) },
       totalScore: this.sessionSnapshot.totalScore,
       scrap: this.sessionSnapshot.scrap,
+      credits: this.sessionSnapshot.credits,
       tank,
       weapon: {
         id: this.sessionSnapshot.selectedWeapon,
@@ -119,10 +124,16 @@ export class InterfaceController {
           <span class="hud-bar-fill" style="width:${healthPercent}%"></span>
           <span class="hud-bar-text">${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth}</span>
         </div>
+        ${tank.shieldMax > 0 ? `
+          <div class="hud-bar hud-bar-shield" role="img" aria-label="Shield">
+            <span class="hud-bar-fill" style="width:${Math.max(0, (tank.shield / tank.shieldMax) * 100)}%"></span>
+            <span class="hud-bar-text">SHD ${Math.max(0, Math.ceil(tank.shield))}</span>
+          </div>
+        ` : ''}
         <div class="hud-micro">
           <span>ARM ${tank.armor.toFixed(2)}x</span>
           <span>SPD ${Math.round(tank.speed)}</span>
-          <span>SCR ${hud.scrap}</span>
+          <span class="hud-credits">$${hud.credits}</span>
           <span>RPR x${tank.repairCharges}</span>
         </div>
         ${hud.boss ? `
@@ -172,17 +183,32 @@ export class InterfaceController {
       button.addEventListener('click', () => {
         this.startMusic?.();
         this.playSfx?.('deploy', 0.9);
-        this.director.startCampaign(1, this.selectedDifficulty);
+        this.director.startCampaign(this.selectedClass, this.selectedDifficulty);
       });
     }
 
-    const upgradeButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-upgrade]');
-    for (const button of upgradeButtons) {
+    const classButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-class]');
+    for (const button of classButtons) {
+      button.addEventListener('click', () => {
+        this.selectedClass = button.dataset.class as PlayerClassId;
+        this.renderOverlay();
+      });
+    }
+
+    const buyButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-buy]');
+    for (const button of buyButtons) {
+      button.addEventListener('click', () => {
+        this.playSfx?.('upgrade', 0.85);
+        this.director.buyShopItem(button.dataset.buy as ShopItemId | WeaponId);
+      });
+    }
+
+    const deployButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-deploy]');
+    for (const button of deployButtons) {
       button.addEventListener('click', () => {
         this.startMusic?.();
-        this.playSfx?.('upgrade', 0.9);
-        const id = button.dataset.upgrade as UpgradeId;
-        this.director.applyUpgrade(id);
+        this.playSfx?.('deploy', 0.9);
+        this.director.advanceToNextMission();
       });
     }
 
@@ -198,6 +224,71 @@ export class InterfaceController {
     }
 
     return 'normal';
+  }
+
+  private renderClassSelector(): string {
+    const order: PlayerClassId[] = ['rifleman', 'rocketeer', 'light', 'medium', 'heavy'];
+    return `
+      <div class="class-panel" aria-label="Choose your unit">
+        <span>Choose Your Unit</span>
+        <div class="class-grid">
+          ${order.map((id) => {
+            const spec = PLAYER_CLASSES[id];
+            return `
+              <button type="button" class="class-card ${id === this.selectedClass ? 'is-selected' : ''}" data-class="${id}">
+                <strong>${spec.label}</strong>
+                <small>${spec.description}</small>
+                <span class="class-stats">
+                  HP ${spec.stats.maxHealth} &middot; SHD ${spec.stats.shieldMax} &middot; SPD ${spec.stats.engine}
+                </span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderShop(snapshot: SessionSnapshot): string {
+    const groups: Array<{ title: string; kind: 'chassis' | 'stat' | 'weapon' }> = [
+      { title: 'Chassis', kind: 'chassis' },
+      { title: 'Upgrades', kind: 'stat' },
+      { title: 'Weapons', kind: 'weapon' },
+    ];
+
+    return `
+      <div class="shop-panel">
+        <div class="shop-head">
+          <span>Field Depot</span>
+          <strong class="shop-wallet">$${snapshot.credits}</strong>
+        </div>
+        ${groups.map((group) => {
+          const entries = snapshot.shop.filter((entry) => entry.kind === group.kind);
+          if (entries.length === 0) {
+            return '';
+          }
+          return `
+            <div class="shop-group">
+              <h4>${group.title}</h4>
+              <div class="shop-grid">
+                ${entries.map((entry) => `
+                  <button type="button" class="shop-card ${entry.owned ? 'is-owned' : ''}"
+                          data-buy="${entry.id}" ${entry.owned || !entry.affordable ? 'disabled' : ''}>
+                    <strong>${entry.label}</strong>
+                    <small>${entry.description}</small>
+                    <span class="shop-price">
+                      ${entry.owned
+                        ? (entry.maxLevel > 1 ? `MAX (${entry.level}/${entry.maxLevel})` : 'Owned')
+                        : `$${entry.price}${entry.maxLevel > 1 ? ` &middot; Lv ${entry.level}/${entry.maxLevel}` : ''}`}
+                    </span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
   }
 
   private renderDifficultySelector(): string {
@@ -348,6 +439,7 @@ export class InterfaceController {
             Pilot a customizable tank through short armored missions. Drive with weight, aim the turret,
             crack destructible cover, angle your armor, and choose upgrades between fights.
           </p>
+          ${this.renderClassSelector()}
           ${this.renderDifficultySelector()}
           <div class="overlay-actions">
             <button type="button" class="action-button primary" data-start>Start Campaign</button>
@@ -370,7 +462,7 @@ export class InterfaceController {
           <h1>${mission.codename} Complete</h1>
           <p>
             Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
-            Scrap: <strong>${snapshot.scrap}</strong>. Pick one upgrade before the next mission.
+            Salvage collected: <strong>$${snapshot.credits}</strong>. Spend it at the depot, then deploy.
           </p>
           ${incomingWeapon ? `
             <p class="weapon-unlock-note">
@@ -378,13 +470,9 @@ export class InterfaceController {
               Press <strong>X</strong> in battle to swap between weapons.
             </p>
           ` : ''}
-          <div class="upgrade-grid">
-            ${snapshot.pendingUpgrades.map((upgrade) => `
-              <button type="button" class="upgrade-card" data-upgrade="${upgrade.id}">
-                <strong>${upgrade.label}</strong>
-                <span>${upgrade.description}</span>
-              </button>
-            `).join('')}
+          ${this.renderShop(snapshot)}
+          <div class="overlay-actions">
+            <button type="button" class="action-button primary" data-deploy>Deploy to ${nextMission?.codename ?? 'Next Mission'}</button>
           </div>
           <div class="overlay-notes">
             <span>Next: ${nextMission?.codename ?? 'Final Debrief'}</span>

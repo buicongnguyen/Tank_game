@@ -4,6 +4,7 @@ import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
 import { darkenColor, INFANTRY_PALETTE, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
 import { WEAPONS, type WeaponSpec } from '../data/weapons';
+import { PLAYER_CLASSES } from '../data/playerClasses';
 import type {
   BossStatus,
   CaptureZoneConfig,
@@ -48,9 +49,21 @@ interface TankRuntime {
   patrolTimeoutMs: number;
   alerted: boolean;
   idleSweep: number;
+  shield: number;
+  shieldMax: number;
 }
 
-type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail';
+interface PickupRuntime {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  value: number;
+  age: number;
+  ttl: number;
+}
+
+type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail' | 'gas';
 
 interface ProjectileRuntime {
   id: number;
@@ -272,6 +285,14 @@ const ENEMY_DETECT_RANGE = 540;
 const ENEMY_DISENGAGE_RANGE = 900;
 const PATROL_ARRIVE_RADIUS = 34;
 const PATROL_LEG_TIMEOUT_MS = 7000;
+/** Quiet time before shields start coming back after taking a hit. */
+const SHIELD_RECHARGE_DELAY_MS = 2600;
+/** How close cash has to be before it starts drifting toward the player. */
+const PICKUP_MAGNET_RANGE = 190;
+const PICKUP_TTL_MS = 22000;
+/** How long a poison cloud lingers and keeps pulsing damage. */
+const GAS_CLOUD_DURATION_MS = 3600;
+
 /** Hull speed a tank needs before it can run infantry down. */
 const INFANTRY_CRUSH_SPEED = 90;
 /** Range at which infantry start sidestepping an oncoming tank. */
@@ -335,7 +356,7 @@ function coverHealth(config: CoverConfig): number {
     return 1;
   }
 
-  if (config.kind === 'repair') {
+  if (config.kind === 'repair' || config.kind === 'armory') {
     return 9999;
   }
 
@@ -382,6 +403,8 @@ export class BattleScene extends Phaser.Scene {
   private readonly gamepad: VirtualGamepad;
   private readonly audio?: BattleMusic;
   private graphics?: Phaser.GameObjects.Graphics;
+  /** Separate additive layer so blasts glow instead of just painting over. */
+  private glow?: Phaser.GameObjects.Graphics;
   private keys?: Record<string, Phaser.Input.Keyboard.Key>;
   private snapshot?: SessionSnapshot;
   private mission?: MissionConfig;
@@ -392,6 +415,9 @@ export class BattleScene extends Phaser.Scene {
   private captureZones: CaptureRuntime[] = [];
   private projectiles: ProjectileRuntime[] = [];
   private explosions: ExplosionRuntime[] = [];
+  private pickups: PickupRuntime[] = [];
+  private pickupLabels: Phaser.GameObjects.Text[] = [];
+  private shieldQuietMs = 0;
   private floatingTexts: FloatingText[] = [];
   private lastRunSerial = -1;
   private missionElapsed = 0;
@@ -422,6 +448,9 @@ export class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.graphics = this.add.graphics();
+    this.glow = this.add.graphics();
+    this.glow.setBlendMode(Phaser.BlendModes.ADD);
+    this.glow.setDepth(6);
     this.keys = this.input.keyboard?.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
       down: Phaser.Input.Keyboard.KeyCodes.S,
@@ -478,6 +507,9 @@ export class BattleScene extends Phaser.Scene {
     this.updateRepairPads(player, snapshot.tankStats, dt);
     this.updateMines(player);
     this.updateInfantryCrush(player);
+    this.updateArmoryBoxes(player);
+    this.updatePickups(player, dt, delta);
+    this.updateShield(player, snapshot.tankStats, dt, delta);
     this.updateMissionState(mission, delta);
     this.updateCamera(mission, player);
     this.onHud(this.buildHudSnapshot(snapshot, mission, player));
@@ -493,6 +525,8 @@ export class BattleScene extends Phaser.Scene {
     this.missionResolved = false;
     this.projectiles = [];
     this.explosions = [];
+    this.pickups = [];
+    this.shieldQuietMs = 0;
     for (const text of this.floatingTexts) {
       text.label.destroy();
     }
@@ -510,7 +544,7 @@ export class BattleScene extends Phaser.Scene {
         ...cover,
         health,
         maxHealth: health,
-        solid: cover.kind !== 'mine' && cover.kind !== 'repair',
+        solid: cover.kind !== 'mine' && cover.kind !== 'repair' && cover.kind !== 'armory',
         spent: false,
       };
     });
@@ -540,8 +574,8 @@ export class BattleScene extends Phaser.Scene {
 
     this.player = {
       id: 'player',
-      kind: 'player',
-      label: 'Steel Front',
+      kind: PLAYER_CLASSES[snapshot.playerClass].artKind,
+      label: PLAYER_CLASSES[snapshot.playerClass].label,
       team: 'player',
       x: 190,
       y: mission.worldHeight * 0.52,
@@ -549,7 +583,7 @@ export class BattleScene extends Phaser.Scene {
       vy: 0,
       bodyAngle: 0,
       turretAngle: 0,
-      radius: 30,
+      radius: PLAYER_CLASSES[snapshot.playerClass].radius,
       health: snapshot.tankStats.maxHealth,
       maxHealth: snapshot.tankStats.maxHealth,
       speed: snapshot.tankStats.engine,
@@ -568,6 +602,8 @@ export class BattleScene extends Phaser.Scene {
       patrolTimeoutMs: 0,
       alerted: true,
       idleSweep: 0,
+      shield: snapshot.tankStats.shieldMax,
+      shieldMax: snapshot.tankStats.shieldMax,
     };
 
     this.cameras.main.setBounds(0, 0, mission.worldWidth, mission.worldHeight);
@@ -618,6 +654,8 @@ export class BattleScene extends Phaser.Scene {
       // convoys and bosses never idle; everything else starts unaware
       alerted: kind === 'convoy' || kind === 'boss',
       idleSweep: seed * 0.9,
+      shield: 0,
+      shieldMax: 0,
     };
   }
 
@@ -987,8 +1025,12 @@ export class BattleScene extends Phaser.Scene {
         const reachedTarget = Phaser.Math.Distance.Between(projectile.x, projectile.y, projectile.targetX, projectile.targetY) <= 18;
         const overshot = (projectile.x - projectile.targetX) * projectile.vx + (projectile.y - projectile.targetY) * projectile.vy > 0;
         if (reachedTarget || overshot || projectile.ttl <= 0) {
-          this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
-          this.damageArea(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
+          if (projectile.kind === 'gas') {
+            this.createGasCloud(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
+          } else {
+            this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
+            this.damageArea(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
+          }
           projectile.ttl = -1;
         }
         continue;
@@ -1077,6 +1119,7 @@ export class BattleScene extends Phaser.Scene {
         cover.health = 0;
         cover.spent = true;
         this.createExplosion(cover.x, cover.y, 145, 0xff9b42);
+        this.dropCash(cover.x, cover.y, 12);
         this.damageArea(cover.x, cover.y, 145, projectile.damage * 1.2, projectile.team);
       } else if (cover.kind === 'mine') {
         cover.health = 0;
@@ -1088,6 +1131,7 @@ export class BattleScene extends Phaser.Scene {
         this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
         if (cover.health <= 0) {
           this.addFloatingText(cover.x, cover.y - 28, 'Cover Broken', 0xf0c15a);
+          this.dropCash(cover.x, cover.y, cover.kind === 'concrete' ? 22 : 14);
         }
       }
 
@@ -1150,6 +1194,26 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /** Driving onto an armory box swaps you onto a weapon you do not have yet. */
+  private updateArmoryBoxes(player: TankRuntime): void {
+    for (const box of this.covers) {
+      if (box.kind !== 'armory' || box.spent) {
+        continue;
+      }
+
+      if (!circleRectOverlap(player.x, player.y, player.radius, box)) {
+        continue;
+      }
+
+      box.spent = true;
+      const weaponId = this.director.rollFieldWeapon();
+      this.director.grantWeapon(weaponId);
+      this.addFloatingText(box.x, box.y - 30, WEAPONS[weaponId].label, 0x95e7ff);
+      this.createExplosion(box.x, box.y, 42, 0x95e7ff);
+      this.audio?.playSfx('upgrade', 0.85);
+    }
+  }
+
   private updateMines(player: TankRuntime): void {
     const targets = [player, ...this.enemies.filter((enemy) => enemy.alive)];
     for (const mine of this.covers) {
@@ -1199,10 +1263,132 @@ export class BattleScene extends Phaser.Scene {
       this.createExplosion(enemy.x, enemy.y, enemy.radius * 1.8, 0xbb4a20);
       this.addFloatingText(enemy.x, enemy.y - 24, 'Crushed', 0xff7447);
       this.director.addScore(Math.round(enemy.score * 0.6));
+      this.dropCash(enemy.x, enemy.y, Math.round(this.cashForEnemy(enemy) * 0.6));
 
       // shoving a body under the tracks costs a little momentum
       player.vx *= 0.86;
       player.vy *= 0.86;
+    }
+  }
+
+
+  /**
+   * Cash value of a kill. It keys off the template scrap rating, so tougher
+   * targets naturally pay more: a rifleman is worth a few coins, a boss a pile.
+   */
+  private cashForEnemy(enemy: TankRuntime): number {
+    const template = ENEMY_TEMPLATES[enemy.kind as EnemyTankKind];
+    const base = template ? template.scrap : 10;
+    return Math.max(3, Math.round(base * 2.2));
+  }
+
+  private dropCash(x: number, y: number, value: number): void {
+    if (value <= 0) {
+      return;
+    }
+
+    // split larger payouts into a few coins so a big kill visibly showers loot
+    const coins = value >= 60 ? 3 : value >= 25 ? 2 : 1;
+    const each = Math.max(1, Math.round(value / coins));
+    for (let i = 0; i < coins; i += 1) {
+      const angle = (i / coins) * Math.PI * 2 + 0.6;
+      this.pickups.push({
+        x, y,
+        vx: Math.cos(angle) * 70,
+        vy: Math.sin(angle) * 70,
+        value: each,
+        age: 0,
+        ttl: PICKUP_TTL_MS,
+      });
+    }
+  }
+
+  private updatePickups(player: TankRuntime, dt: number, delta: number): void {
+    for (const pickup of this.pickups) {
+      pickup.age += delta;
+      const distance = Phaser.Math.Distance.Between(pickup.x, pickup.y, player.x, player.y);
+
+      if (distance < PICKUP_MAGNET_RANGE) {
+        // drift toward the player so collecting does not demand pixel precision
+        const pull = (1 - distance / PICKUP_MAGNET_RANGE) * 900;
+        const angle = Math.atan2(player.y - pickup.y, player.x - pickup.x);
+        pickup.vx += Math.cos(angle) * pull * dt;
+        pickup.vy += Math.sin(angle) * pull * dt;
+      }
+
+      pickup.vx *= 0.92;
+      pickup.vy *= 0.92;
+      pickup.x += pickup.vx * dt;
+      pickup.y += pickup.vy * dt;
+
+      if (distance < player.radius + 16) {
+        pickup.age = pickup.ttl + 1;
+        this.director.addCredits(pickup.value);
+        this.addFloatingText(pickup.x, pickup.y - 18, `+$${pickup.value}`, 0xffd766);
+      }
+    }
+
+    this.pickups = this.pickups.filter((pickup) => pickup.age <= pickup.ttl);
+  }
+
+  private updateShield(player: TankRuntime, stats: TankStats, dt: number, delta: number): void {
+    player.shieldMax = stats.shieldMax;
+    this.shieldQuietMs = Math.max(0, this.shieldQuietMs - delta);
+    if (this.shieldQuietMs > 0 || player.shield >= player.shieldMax) {
+      player.shield = Math.min(player.shield, player.shieldMax);
+      return;
+    }
+
+    player.shield = Math.min(player.shieldMax, player.shield + stats.shieldRegen * dt);
+  }
+
+  private drawPickups(graphics: Phaser.GameObjects.Graphics): void {
+    for (const pickup of this.pickups) {
+      const bob = Math.sin((pickup.age + pickup.value * 90) / 260) * 3;
+      const fading = pickup.age > pickup.ttl - 3000;
+      const alpha = fading ? 0.35 + 0.65 * Math.abs(Math.sin(pickup.age / 120)) : 1;
+      const y = pickup.y + bob;
+
+      graphics.fillStyle(0x05070a, 0.3 * alpha);
+      graphics.fillEllipse(pickup.x, pickup.y + 9, 18, 7);
+      graphics.fillStyle(0x8a6a1e, alpha);
+      graphics.fillCircle(pickup.x, y, 9);
+      graphics.fillStyle(0xffd766, alpha);
+      graphics.fillCircle(pickup.x, y, 7);
+      graphics.lineStyle(1.5, 0x6b4f12, 0.85 * alpha);
+      graphics.strokeCircle(pickup.x, y, 7);
+      graphics.fillStyle(0x6b4f12, alpha);
+      graphics.fillRect(pickup.x - 1, y - 4, 2, 8);
+    }
+  }
+
+  private syncPickupLabels(): void {
+    // the value text rides along as a pooled Phaser text object
+    while (this.pickupLabels.length < this.pickups.length) {
+      const label = this.add.text(0, 0, '', {
+        color: '#ffe9a8',
+        fontFamily: 'Bahnschrift, Trebuchet MS, sans-serif',
+        fontSize: '12px',
+        fontStyle: '700',
+        stroke: '#1a1206',
+        strokeThickness: 3,
+      });
+      label.setOrigin(0.5);
+      label.setDepth(11);
+      this.pickupLabels.push(label);
+    }
+
+    for (let i = 0; i < this.pickupLabels.length; i += 1) {
+      const label = this.pickupLabels[i];
+      const pickup = this.pickups[i];
+      if (!pickup) {
+        label.setVisible(false);
+        continue;
+      }
+
+      label.setVisible(true);
+      label.setText(`$${pickup.value}`);
+      label.setPosition(pickup.x, pickup.y - 16);
     }
   }
 
@@ -1395,7 +1581,22 @@ export class BattleScene extends Phaser.Scene {
     }
 
     const applied = damage * multiplier * (target.team === 'player' && this.snapshot ? 1 / this.snapshot.tankStats.armor : 1);
-    target.health -= applied;
+
+    // Shields soak first and stop regenerating for a moment after a hit, which
+    // is what makes rifle fire a nuisance rather than a real threat.
+    let remaining = applied;
+    if (target.shield > 0) {
+      const absorbed = Math.min(target.shield, remaining);
+      target.shield -= absorbed;
+      remaining -= absorbed;
+      if (target.team === 'player') {
+        this.shieldQuietMs = SHIELD_RECHARGE_DELAY_MS;
+      }
+    } else if (target.team === 'player') {
+      this.shieldQuietMs = SHIELD_RECHARGE_DELAY_MS;
+    }
+
+    target.health -= remaining;
     if (blastRadius > 0) {
       this.createExplosion(projectile.x, projectile.y, blastRadius, projectile.color);
       this.damageArea(projectile.x, projectile.y, blastRadius, damage * 0.42, projectile.team, target.id);
@@ -1407,6 +1608,7 @@ export class BattleScene extends Phaser.Scene {
       this.createExplosion(target.x, target.y, target.radius * 2.6, target.team === 'player' ? 0xff5147 : 0xffb24a);
       if (target.team === 'enemy') {
         this.director.addScore(target.score);
+        this.dropCash(target.x, target.y, this.cashForEnemy(target));
       }
     }
   }
@@ -1517,6 +1719,28 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Lingering poison cloud, modelled on the rambo_game poison bomb: the cloud
+   * hangs around and re-applies damage in pulses instead of a single blast.
+   */
+  private createGasCloud(x: number, y: number, radius: number, damage: number, team: Team): void {
+    this.explosions.push({
+      x, y, radius,
+      age: 0,
+      duration: GAS_CLOUD_DURATION_MS,
+      color: 0x8cff6a,
+      sparks: [],
+    });
+    this.playSpatialSfx('explosion', x, y, 0.6);
+
+    const pulses = 5;
+    for (let index = 0; index < pulses; index += 1) {
+      this.time.delayedCall(index * (GAS_CLOUD_DURATION_MS / pulses), () => {
+        this.damageArea(x, y, radius, damage, team);
+      });
+    }
+  }
+
   private callArtilleryStrike(): void {
     const target = this.getArtilleryTarget();
     this.addFloatingText(target.x, target.y - 52, 'Artillery', 0xffd27a);
@@ -1606,9 +1830,12 @@ export class BattleScene extends Phaser.Scene {
       },
       totalScore: snapshot.totalScore,
       scrap: snapshot.scrap,
+      credits: snapshot.credits,
       tank: {
         health: Math.max(0, player.health),
         maxHealth: player.maxHealth,
+        shield: Math.max(0, player.shield),
+        shieldMax: player.shieldMax,
         armor: snapshot.tankStats.armor,
         speed: Math.hypot(player.vx, player.vy),
         reloadPercent: 1 - clamp(player.reloadTimer / player.reloadMs, 0, 1),
@@ -1666,6 +1893,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     graphics.clear();
+    this.glow?.clear();
     const mission = this.mission ?? this.snapshot?.currentMission;
     if (!mission) {
       return;
@@ -1676,6 +1904,8 @@ export class BattleScene extends Phaser.Scene {
     this.drawEscort(graphics);
     this.drawCovers(graphics);
     this.drawTanks(graphics);
+    this.drawPickups(graphics);
+    this.syncPickupLabels();
     this.drawProjectiles(graphics);
     this.drawExplosions(graphics);
   }
@@ -1788,6 +2018,11 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
+      if (cover.kind === 'armory') {
+        this.drawCoverArmory(graphics, cover);
+        continue;
+      }
+
       if (cover.kind === 'concrete') {
         this.drawCoverBuilding(graphics, cover);
         continue;
@@ -1838,6 +2073,32 @@ export class BattleScene extends Phaser.Scene {
     const blink = Math.sin(this.missionElapsed / 220) > 0.4;
     graphics.fillStyle(blink ? 0xffe6a0 : 0x7a2b20, 0.95);
     graphics.fillCircle(cover.x, cover.y, 4);
+  }
+
+  private drawCoverArmory(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const pulse = 0.5 + 0.5 * Math.sin(this.missionElapsed / 300);
+
+    graphics.fillStyle(0x95e7ff, 0.12 + pulse * 0.1);
+    graphics.fillCircle(cover.x, cover.y, cover.width * 0.85);
+
+    graphics.fillStyle(0x2f4a54, 0.96);
+    graphics.fillRoundedRect(left, top, cover.width, cover.height, 5);
+    graphics.lineStyle(2, 0x95e7ff, 0.6 + pulse * 0.35);
+    graphics.strokeRoundedRect(left, top, cover.width, cover.height, 5);
+
+    // stencilled bullet mark so it reads as an ammo crate
+    const cw = cover.width, ch = cover.height;
+    graphics.fillStyle(0x95e7ff, 0.9);
+    graphics.fillRect(left + cw * 0.24, top + ch * 0.44, cw * 0.4, ch * 0.12);
+    graphics.fillTriangle(
+      left + cw * 0.64, top + ch * 0.38,
+      left + cw * 0.8, top + ch * 0.5,
+      left + cw * 0.64, top + ch * 0.62,
+    );
+    graphics.fillStyle(0xdff6ff, 0.8);
+    graphics.fillRect(left + cw * 0.2, top + ch * 0.2, cw * 0.6, 3);
   }
 
   private drawCoverBarrel(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
@@ -1949,7 +2210,9 @@ export class BattleScene extends Phaser.Scene {
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
-      if (projectile.sourceKind === 'rifleman') {
+      if (projectile.kind === 'gas') {
+        this.drawMortarShell(graphics, projectile);
+      } else if (projectile.sourceKind === 'rifleman') {
         this.drawBullet(graphics, projectile);
       } else if (projectile.kind === 'mortar') {
         this.drawMortarShell(graphics, projectile);
@@ -2445,6 +2708,17 @@ export class BattleScene extends Phaser.Scene {
         const flashAlpha = 1 - progress / 0.35;
         graphics.fillStyle(0xfff2c9, 0.85 * flashAlpha);
         graphics.fillCircle(explosion.x, explosion.y, explosion.radius * 0.32 * (1 - progress * 0.5));
+      }
+
+      // additive bloom pass, the trick rambo_game uses to make blasts glow
+      const glow = this.glow;
+      if (glow) {
+        glow.fillStyle(explosion.color, 0.34 * (1 - progress));
+        glow.fillCircle(explosion.x, explosion.y, explosion.radius * easeOut * 0.8);
+        if (progress < 0.4) {
+          glow.fillStyle(0xffffff, 0.5 * (1 - progress / 0.4));
+          glow.fillCircle(explosion.x, explosion.y, explosion.radius * 0.3);
+        }
       }
 
       // radial debris sparks shooting outward

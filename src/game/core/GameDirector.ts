@@ -1,21 +1,15 @@
 import { STAGES } from '../data/stages';
-import { weaponsUnlockedAt, weaponUnlockedAtMission } from '../data/weapons';
-import type { DifficultyMode, MissionConfig, SessionSnapshot, TankStats, UpgradeId, UpgradeOption, WeaponId } from '../types';
+import { PURCHASABLE_WEAPONS, WEAPON_PRICE, WEAPONS, weaponsUnlockedAt, weaponUnlockedAtMission } from '../data/weapons';
+import { CHASSIS_PRICE, cloneClassStats, nextChassis, PLAYER_CLASSES } from '../data/playerClasses';
+import { SHOP_STATS, statPrice } from '../data/shop';
+import type {
+  DifficultyMode, MissionConfig, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId,
+  TankStats, UpgradeId, UpgradeOption, WeaponId,
+} from '../types';
 
 type Listener = (snapshot: SessionSnapshot) => void;
 
-const BASE_STATS: TankStats = {
-  maxHealth: 520,
-  armor: 1,
-  engine: 235,
-  turnRate: 5.8,
-  reloadMs: 880,
-  shellDamage: 95,
-  shellSpeed: 760,
-  secondaryCooldownMs: 2400,
-  specialCooldownMs: 13500,
-  repairCharges: 2,
-};
+
 
 const UPGRADE_LIBRARY: Record<UpgradeId, UpgradeOption> = {
   armor: {
@@ -96,9 +90,13 @@ export class GameDirector {
   private runSerial = 0;
   private completedMissions = 0;
   private failureReason: string | undefined;
-  private tankStats = cloneStats(BASE_STATS);
+  private playerClass: PlayerClassId = 'medium';
+  private tankStats = cloneClassStats('medium');
   private pendingUpgrades: UpgradeOption[] = this.getUpgradeOptions(0);
   private selectedWeapon: WeaponId = 'rocket';
+  private credits = 0;
+  private statLevels: Partial<Record<ShopItemId, number>> = {};
+  private boughtWeapons: WeaponId[] = [];
 
   constructor(missions: MissionConfig[] = STAGES) {
     this.missions = missions;
@@ -135,11 +133,144 @@ export class GameDirector {
       pendingUpgrades: [...this.pendingUpgrades],
       unlockedWeapons: this.getUnlockedWeapons(),
       selectedWeapon: this.selectedWeapon,
+      playerClass: this.playerClass,
+      credits: this.credits,
+      shop: this.getShopEntries(),
     };
   }
 
+  /** Everything on offer between stages, priced against the current wallet. */
+  getShopEntries(): ShopEntry[] {
+    const entries: ShopEntry[] = [];
+
+    const upgrade = nextChassis(this.playerClass);
+    if (upgrade) {
+      const price = CHASSIS_PRICE[upgrade];
+      entries.push({
+        id: 'chassis',
+        kind: 'chassis',
+        label: `Upgrade to ${PLAYER_CLASSES[upgrade].label}`,
+        description: PLAYER_CLASSES[upgrade].description,
+        price,
+        level: PLAYER_CLASSES[this.playerClass].tier,
+        maxLevel: 3,
+        owned: false,
+        affordable: this.credits >= price,
+      });
+    }
+
+    for (const spec of Object.values(SHOP_STATS)) {
+      const level = this.statLevels[spec.id] ?? 0;
+      const price = statPrice(spec, level);
+      entries.push({
+        id: spec.id,
+        kind: 'stat',
+        label: spec.label,
+        description: spec.description,
+        price,
+        level,
+        maxLevel: spec.maxLevel,
+        owned: level >= spec.maxLevel,
+        affordable: this.credits >= price && level < spec.maxLevel,
+      });
+    }
+
+    for (const weaponId of PURCHASABLE_WEAPONS) {
+      const price = WEAPON_PRICE[weaponId] ?? 0;
+      const owned = this.boughtWeapons.includes(weaponId);
+      entries.push({
+        id: weaponId,
+        kind: 'weapon',
+        label: WEAPONS[weaponId].label,
+        description: WEAPONS[weaponId].description,
+        price,
+        level: owned ? 1 : 0,
+        maxLevel: 1,
+        owned,
+        affordable: !owned && this.credits >= price,
+      });
+    }
+
+    return entries;
+  }
+
+  /**
+   * Weapon picked up from an armory box mid-mission. It joins the arsenal for
+   * good and is equipped immediately so the swap is felt straight away.
+   */
+  grantWeapon(id: WeaponId): void {
+    if (!this.boughtWeapons.includes(id)) {
+      this.boughtWeapons.push(id);
+    }
+
+    this.selectedWeapon = id;
+    this.emit();
+  }
+
+  /** A weapon the player does not own yet, for armory boxes to hand out. */
+  rollFieldWeapon(): WeaponId {
+    const owned = this.getUnlockedWeapons();
+    const missing = PURCHASABLE_WEAPONS.filter((id) => !owned.includes(id));
+    const pool = missing.length > 0 ? missing : PURCHASABLE_WEAPONS;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  addCredits(amount: number): void {
+    this.credits += Math.max(0, Math.round(amount));
+  }
+
+  /** Spend credits on a shop line. Returns false when it was not affordable. */
+  buyShopItem(id: ShopItemId | WeaponId): boolean {
+    const entry = this.getShopEntries().find((candidate) => candidate.id === id);
+    if (!entry || entry.owned || !entry.affordable) {
+      return false;
+    }
+
+    this.credits -= entry.price;
+
+    if (entry.kind === 'chassis') {
+      const upgrade = nextChassis(this.playerClass);
+      if (upgrade) {
+        this.switchChassis(upgrade);
+      }
+    } else if (entry.kind === 'weapon') {
+      this.boughtWeapons.push(id as WeaponId);
+      this.selectedWeapon = id as WeaponId;
+    } else {
+      const spec = SHOP_STATS[id as Exclude<ShopItemId, 'chassis'>];
+      spec.apply(this.tankStats);
+      this.statLevels[spec.id] = (this.statLevels[spec.id] ?? 0) + 1;
+    }
+
+    this.emit();
+    return true;
+  }
+
+  /**
+   * Moving to a heavier chassis rebases the stats on the new hull, then replays
+   * every upgrade already bought so purchases are never lost in the swap.
+   */
+  private switchChassis(next: PlayerClassId): void {
+    this.playerClass = next;
+    this.tankStats = applyDifficulty(cloneClassStats(next), this.difficulty);
+    for (const [id, level] of Object.entries(this.statLevels)) {
+      const spec = SHOP_STATS[id as Exclude<ShopItemId, 'chassis'>];
+      for (let i = 0; i < (level ?? 0); i += 1) {
+        spec.apply(this.tankStats);
+      }
+    }
+
+    const starting = PLAYER_CLASSES[next].startingWeapon;
+    if (!this.getUnlockedWeapons().includes(this.selectedWeapon)) {
+      this.selectedWeapon = starting;
+    }
+  }
+
   getUnlockedWeapons(): WeaponId[] {
-    return weaponsUnlockedAt(this.currentMissionIndex);
+    const progression = weaponsUnlockedAt(this.currentMissionIndex);
+    const starting = PLAYER_CLASSES[this.playerClass].startingWeapon;
+    const all = [starting, ...progression, ...this.boughtWeapons];
+    return all.filter((id, index) => all.indexOf(id) === index);
   }
 
   cycleWeapon(direction: 1 | -1 = 1): void {
@@ -154,17 +285,24 @@ export class GameDirector {
     this.emit();
   }
 
-  startCampaign(_playerCount: 1 | 2 = 1, difficulty: DifficultyMode = this.difficulty): void {
+  startCampaign(
+    playerClass: PlayerClassId = this.playerClass,
+    difficulty: DifficultyMode = this.difficulty,
+  ): void {
     this.phase = 'playing';
     this.difficulty = difficulty;
+    this.playerClass = playerClass;
     this.currentMissionIndex = 0;
     this.totalScore = 0;
     this.scrap = 0;
+    this.credits = 0;
+    this.statLevels = {};
+    this.boughtWeapons = [];
     this.failureReason = undefined;
     this.completedMissions = 0;
-    this.tankStats = applyDifficulty(BASE_STATS, difficulty);
+    this.tankStats = applyDifficulty(cloneClassStats(playerClass), difficulty);
     this.pendingUpgrades = this.getUpgradeOptions(0);
-    this.selectedWeapon = 'rocket';
+    this.selectedWeapon = PLAYER_CLASSES[playerClass].startingWeapon;
     this.runSerial += 1;
     this.emit();
   }
