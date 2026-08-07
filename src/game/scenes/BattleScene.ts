@@ -789,6 +789,7 @@ export class BattleScene extends Phaser.Scene {
     const aimAxis = this.gamepad.getAimAxis();
     if (Math.hypot(aimAxis.x, aimAxis.y) > 0.18) {
       player.turretAngle = Math.atan2(aimAxis.y, aimAxis.x);
+      this.aimMode = 'heading';
       this.lastPointerWorld = {
         x: player.x + Math.cos(player.turretAngle) * 240,
         y: player.y + Math.sin(player.turretAngle) * 240,

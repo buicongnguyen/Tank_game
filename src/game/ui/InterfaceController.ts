@@ -384,7 +384,7 @@ export class InterfaceController {
         <h3>Battle Tank Inputs</h3>
         <ul>
           <li><strong>Keyboard</strong> WASD drives, mouse aims, Space fires, E fires the sidearm, X swaps it, Q calls artillery, R repairs.</li>
-          <li><strong>Mobile</strong> Left stick drives. Tap the battlefield to aim, then use the buttons for cannon, sidearm, swap, artillery, and repair.</li>
+          <li><strong>Mobile</strong> Left stick drives. Tap the battlefield to aim, or drag the smaller right stick to aim and fire the cannon. Use the buttons for sidearm, swap, artillery, and repair.</li>
           <li><strong>Armor</strong> Face threats with the hull. Rear hits hurt much more than front hits.</li>
         </ul>
       </article>

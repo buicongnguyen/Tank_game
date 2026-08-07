@@ -13,6 +13,7 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 3. Investigate and improve mobile smoothness.
 4. Change mobile gun aiming so tapping the battlefield points the turret in that direction.
 5. Add an end-of-stage button that opens a usable shop for weapon and vehicle purchases/upgrades.
+6. Reserve the lower-left area exclusively for movement and replace the mobile cannon button with a smaller right-side aim/fire stick.
 
 ## Implementation Summary
 
@@ -27,8 +28,10 @@ Files:
 
 Changes:
 
-- Anchored the movement stick at the bottom-left with safe-area-aware offsets.
-- Removed the invisible/floating right-side aim stick, which intercepted a large part of the battlefield.
+- Anchored the movement stick closer to the bottom-left with safe-area-aware offsets.
+- Reserved the full lower-left control zone for movement so touches there cannot reach the battlefield aim handler.
+- Added a smaller fixed right-side aim/fire stick. Dragging establishes the turret direction before firing; a centered tap fires along the current heading.
+- The right stick retains its selected heading after release, preventing aim drift while the tank moves.
 - Added tap-to-aim through Phaser pointer-down and pointer-move events.
 - Touching the battlefield aims but does not automatically fire.
 - Desktop mouse input still supports mouse aiming and click-to-fire.
@@ -38,7 +41,7 @@ Changes:
 Expected mobile control layout:
 
 - Bottom-left: movement stick.
-- Bottom-right: cannon, secondary weapon, weapon swap, artillery, and repair buttons.
+- Bottom-right: smaller aim/fire stick plus secondary weapon, weapon swap, artillery, and repair buttons.
 - Remaining battlefield: tap or drag to aim the turret.
 
 ### 2. Mobile performance improvements
@@ -218,9 +221,11 @@ Verified:
 
 - Touch mode activates.
 - Movement stick is visible and interactive at the bottom-left.
-- Movement stick was measured at 18 px from the left and 36 px above the bottom safe-area position in this viewport.
-- No right aim-stick element remains.
+- Movement stick was measured at 18 px from the left and 12 px above the bottom at an 844 x 390 viewport.
+- The right aim/fire stick measured 96 px, compared with the 148 px movement stick.
 - Tapping the open battlefield changes turret direction.
+- Tapping the empty lower-left movement zone does not change turret direction.
+- Dragging the right stick changes heading before firing, and the heading remains locked after release.
 - Bottom-right action controls remain available.
 - Initial HUD displays the selected weapon as `ROCKET L1`.
 - Browser console contained no errors or warnings during smoke tests.
@@ -265,8 +270,8 @@ These changes are currently uncommitted unless the repository state is changed a
 ### Controls
 
 - Confirm tap-to-aim feels correct on a real Android/iOS device, not only a responsive browser viewport.
-- Confirm multi-touch permits holding the movement stick while pressing action buttons.
-- Confirm tapping or dragging the battlefield does not fire unless the player presses the fire button.
+- Confirm multi-touch permits holding the movement stick while dragging the right aim/fire stick or pressing action buttons.
+- Confirm tapping or dragging the battlefield does not fire; cannon fire comes from the right aim/fire stick.
 - Confirm desktop mouse click-to-fire behavior remains desirable.
 
 ### Shop/economy

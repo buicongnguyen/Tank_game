@@ -9,7 +9,8 @@ function isTouchButtonAction(value: string | undefined): value is TouchButtonAct
 }
 
 /** Travel from the stick origin, in px, that maps to a fully deflected axis. */
-const STICK_RADIUS = 58;
+const DRIVE_STICK_RADIUS = 58;
+const AIM_STICK_RADIUS = 32;
 
 const ICONS: Record<string, string> = {
   fire: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.2h9V5.6l6.4 6.4L12 18.4v-3.6H3z"/></svg>',
@@ -20,6 +21,8 @@ const ICONS: Record<string, string> = {
 };
 
 interface StickBinding {
+  kind: 'drive' | 'aim';
+  radius: number;
   zone: HTMLElement;
   shell: HTMLElement;
   knob: HTMLElement;
@@ -81,7 +84,14 @@ export class TouchControlsOverlay {
               <span class="action-caption" data-repair-detail></span>
             </button>
           </div>
-          <button type="button" class="touch-button touch-button-fire" data-action="fire" aria-label="Fire cannon">
+          <div class="touch-aim-control" data-zone="aim" aria-label="Aim and fire cannon">
+            <div class="touch-stick-shell tank-aim-stick" data-shell data-engaged="false">
+              <div class="touch-stick-ring"></div>
+              <div class="touch-stick-knob" data-knob></div>
+              <span class="touch-stick-label">Aim / Fire</span>
+            </div>
+          </div>
+          <button type="button" class="touch-button touch-button-fire desktop-fire-button" data-action="fire" aria-label="Fire cannon">
             ${ICONS.fire}
             <span class="key-hint">Space</span>
           </button>
@@ -89,15 +99,28 @@ export class TouchControlsOverlay {
       </div>
     `;
 
-    const zone = this.root.querySelector<HTMLElement>('[data-zone="drive"]');
-    const shell = zone?.querySelector<HTMLElement>('[data-shell]');
-    const knob = zone?.querySelector<HTMLElement>('[data-knob]');
-    if (!zone || !shell || !knob) {
-      throw new Error('Tank touch controls failed to initialize.');
+    const stickDefinitions: Array<{ selector: string; kind: StickBinding['kind']; radius: number }> = [
+      { selector: '[data-zone="drive"]', kind: 'drive', radius: DRIVE_STICK_RADIUS },
+      { selector: '[data-zone="aim"]', kind: 'aim', radius: AIM_STICK_RADIUS },
+    ];
+    for (const definition of stickDefinitions) {
+      const zone = this.root.querySelector<HTMLElement>(definition.selector);
+      const shell = zone?.querySelector<HTMLElement>('[data-shell]');
+      const knob = zone?.querySelector<HTMLElement>('[data-knob]');
+      if (!zone || !shell || !knob) {
+        throw new Error(`Tank ${definition.kind} controls failed to initialize.`);
+      }
+
+      const binding: StickBinding = {
+        kind: definition.kind,
+        radius: definition.radius,
+        zone,
+        shell,
+        knob,
+      };
+      this.sticks.push(binding);
+      this.bindStick(binding);
     }
-    const binding: StickBinding = { zone, shell, knob };
-    this.sticks.push(binding);
-    this.bindStick(binding);
 
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
     this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
@@ -165,12 +188,15 @@ export class TouchControlsOverlay {
     }
   }
 
-  /** The drive stick stays anchored at bottom-left. The battlefield handles aim taps. */
+  /** Drive stays bottom-left; aim/fire uses the smaller anchored right stick. */
   private bindStick(binding: StickBinding): void {
-    const { zone, shell, knob } = binding;
+    const { kind, radius, zone, shell, knob } = binding;
     let pointerId: number | null = null;
     let originX = 0;
     let originY = 0;
+    let aimDeflected = false;
+    let lastAimX = 0;
+    let lastAimY = 0;
 
     const placeShell = (x: number, y: number): void => {
       shell.style.setProperty('--origin-x', `${x}px`);
@@ -182,13 +208,27 @@ export class TouchControlsOverlay {
       const rawX = event.clientX - rect.left - originX;
       const rawY = event.clientY - rect.top - originY;
       const distance = Math.hypot(rawX, rawY);
-      const scale = distance > STICK_RADIUS && distance > 0 ? STICK_RADIUS / distance : 1;
+      const scale = distance > radius && distance > 0 ? radius / distance : 1;
       const knobX = rawX * scale;
       const knobY = rawY * scale;
 
       knob.style.setProperty('--stick-x', `${knobX}px`);
       knob.style.setProperty('--stick-y', `${knobY}px`);
-      this.gamepad.setDriveAxis(knobX / STICK_RADIUS, knobY / STICK_RADIUS);
+      if (kind === 'drive') {
+        this.gamepad.setDriveAxis(knobX / radius, knobY / radius);
+      } else {
+        const aimX = knobX / radius;
+        const aimY = knobY / radius;
+        this.gamepad.setAimAxis(aimX, aimY);
+        if (Math.hypot(aimX, aimY) > 0.18) {
+          aimDeflected = true;
+          lastAimX = aimX;
+          lastAimY = aimY;
+          this.gamepad.setAction(1, 'fire', true);
+        } else {
+          this.gamepad.setAction(1, 'fire', false);
+        }
+      }
     };
 
     // Move/up are tracked on the window rather than the zone. On the desktop
@@ -213,12 +253,29 @@ export class TouchControlsOverlay {
     };
 
     const releaseStick = (): void => {
+      const fireOnTap = pointerId !== null && kind === 'aim' && !aimDeflected;
       window.removeEventListener('pointermove', onWindowMove);
       window.removeEventListener('pointerup', onWindowUp);
       window.removeEventListener('pointercancel', onWindowUp);
 
       pointerId = null;
-      this.gamepad.setDriveAxis(0, 0);
+      if (kind === 'drive') {
+        this.gamepad.setDriveAxis(0, 0);
+      } else {
+        this.gamepad.setAction(1, 'fire', false);
+        if (aimDeflected) {
+          // Keep the final non-zero heading even when the finger springs back
+          // through the centre during release.
+          this.gamepad.setAimAxis(lastAimX, lastAimY);
+        }
+        if (fireOnTap) {
+          // A centred tap means "fire at the current heading". The quick
+          // down/up pulse leaves justPressed set for the next game update.
+          this.gamepad.setAction(1, 'fire', true);
+          this.gamepad.setAction(1, 'fire', false);
+        }
+      }
+      aimDeflected = false;
 
       shell.dataset.engaged = 'false';
       delete shell.dataset.floating;
@@ -263,10 +320,20 @@ export class TouchControlsOverlay {
     });
     shell.addEventListener('contextmenu', (event) => event.preventDefault());
 
+    if (kind === 'drive') {
+      // Own the whole lower-left area so its touches cannot reach Phaser's
+      // battlefield tap-to-aim handler.
+      zone.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      zone.addEventListener('contextmenu', (event) => event.preventDefault());
+    }
+
     // Desktop layout with a touchscreen: the zone is click-through so the mouse
     // reaches the canvas, but a finger should still get the floating stick.
     window.addEventListener('pointerdown', (event) => {
-      if (pointerId !== null || this.root.hidden || this.root.dataset.mode === 'touch') {
+      if (kind !== 'drive' || pointerId !== null || this.root.hidden || this.root.dataset.mode === 'touch') {
         return;
       }
 

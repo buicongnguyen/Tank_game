@@ -1830,6 +1830,7 @@ a {
 .touch-zone-drive {
   left: 0;
   width: 46%;
+  top: 50%;
 }
 
 .touch-controls-root[data-mode='touch'] .touch-zone {
@@ -1837,7 +1838,7 @@ a {
 }
 
 .touch-controls-root[data-mode='touch'] .touch-zone-drive {
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .touch-controls-root[data-mode='touch'] .touch-stick-shell {
@@ -1860,7 +1861,7 @@ a {
 .touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
   left: max(18px, env(safe-area-inset-left, 0px));
   top: auto;
-  bottom: max(36px, calc(16px + env(safe-area-inset-bottom, 0px)));
+  bottom: max(12px, calc(4px + env(safe-area-inset-bottom, 0px)));
   transform: none;
   opacity: 1;
   pointer-events: auto;
@@ -1895,6 +1896,42 @@ a {
   grid-template-columns: repeat(2, auto);
   gap: 10px 12px;
   pointer-events: none;
+}
+
+.touch-aim-control {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-shell {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 96px;
+  height: 96px;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-ring {
+  inset: 12px;
+}
+
+.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-knob {
+  width: 40px;
+  height: 40px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent 38%),
+    linear-gradient(180deg, rgba(126, 215, 221, 0.9), rgba(28, 93, 106, 0.9));
+}
+
+.touch-controls-root[data-mode='touch'] .desktop-fire-button,
+.touch-controls-root[data-mode='desktop'] .touch-aim-control {
+  display: none;
 }
 
 .touch-controls-root .touch-button-mini {
@@ -2036,7 +2073,22 @@ a {
 
   .touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
     left: max(8px, env(safe-area-inset-left, 0px));
-    bottom: max(48px, calc(24px + env(safe-area-inset-bottom, 0px)));
+    bottom: max(8px, calc(2px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  .touch-aim-control,
+  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-shell {
+    width: 80px;
+    height: 80px;
+  }
+
+  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-ring {
+    inset: 10px;
+  }
+
+  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-knob {
+    width: 34px;
+    height: 34px;
   }
 
   .touch-controls-root .touch-button-mini {
