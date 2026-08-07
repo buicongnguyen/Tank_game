@@ -6,6 +6,7 @@ function commonCovers(offset = 0): MissionConfig['covers'] {
     { id: `barrel-a-${offset}`, kind: 'barrel', x: 560 + offset, y: 620, width: 54, height: 54 },
     { id: `concrete-a-${offset}`, kind: 'concrete', x: 760 + offset, y: 360, width: 170, height: 90 },
     { id: `crate-b-${offset}`, kind: 'crate', x: 1040 + offset, y: 710, width: 150, height: 70 },
+    { id: `rock-wall-${offset}`, kind: 'rockWall', x: 1280 + offset, y: 790, width: 196, height: 76 },
     { id: `mine-a-${offset}`, kind: 'mine', x: 1260 + offset, y: 430, width: 42, height: 42 },
     { id: `repair-a-${offset}`, kind: 'repair', x: 1460 + offset, y: 250, width: 88, height: 88 },
     { id: `concrete-b-${offset}`, kind: 'concrete', x: 1720 + offset, y: 610, width: 180, height: 100 },
@@ -57,12 +58,12 @@ function armory(id: string, x: number, y: number): CoverConfig[] {
 
 /** Infantry can enter through the visible breach and shelter inside. */
 function openHouse(id: string, x: number, y: number, doorSide: HouseDoorSide): CoverConfig[] {
-  return [{ id, kind: 'houseOpen', x, y, width: 154, height: 112, health: 480, doorSide }];
+  return [{ id, kind: 'houseOpen', x, y, width: 154, height: 112, health: 4, doorSide }];
 }
 
 /** A sealed house releases its hidden infantry only when the structure falls. */
 function sealedHouse(id: string, x: number, y: number, garrison: InfantryKind[]): CoverConfig[] {
-  return [{ id, kind: 'houseSealed', x, y, width: 158, height: 116, health: 360, garrison }];
+  return [{ id, kind: 'houseSealed', x, y, width: 158, height: 116, health: 3, garrison }];
 }
 
 function clusters(...groups: CoverConfig[][]): CoverConfig[] {
@@ -299,7 +300,7 @@ export const STAGES: MissionConfig[] = [
     briefing: 'The relay keeps friendly artillery online. Park in the circle, manage repairs, and survive the armored counterattack.',
     worldWidth: 2200,
     worldHeight: 920,
-    durationMs: 105000,
+    durationMs: 30000,
     palette: {
       sky: 0x10151b,
       ground: 0x3c4241,

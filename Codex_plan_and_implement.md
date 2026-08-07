@@ -16,8 +16,24 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 6. Reserve the lower-left area exclusively for movement and replace the mobile cannon button with a smaller right-side aim/fire stick.
 7. Support a second simultaneous battlefield touch while moving so it aims and fires the cannon.
 8. Make normal aim/fire use the currently selected weapon immediately after swapping, without a separate secondary button.
+9. Shorten Mission 7, Relay Hold, to a mobile-friendly objective duration.
+10. Rebalance destructible cover and add durable rock walls.
 
 ## Implementation Summary
+
+### 0. Mission pacing
+
+- Shortened Mission 7, Relay Hold, from 105 seconds to 30 seconds of accumulated relay control time.
+- The objective HUD and victory check both read the same stage duration, so the displayed countdown and completion timing remain synchronized.
+
+### 0.1 Destructible cover durability
+
+- Structural durability now uses direct ordnance hits rather than raw combat damage, keeping cover behavior predictable across tank classes and weapon upgrades.
+- Wooden crates break from one direct tank shell.
+- Sealed brick houses withstand three direct ordnance hits and release any hidden garrison when destroyed.
+- Breached concrete shelters withstand four direct ordnance hits and continue to admit and protect infantry through their visible opening.
+- Rock walls were added to the shared battlefield cover layout and withstand eight direct ordnance hits, twice the durability of a concrete shelter.
+- Soldier small-arms rounds deal one-quarter structural damage; rockets and vehicle shells deal one full structural hit. Explosion splash is normalized into partial structural damage.
 
 ### 1. Mobile movement and aiming
 

@@ -4,7 +4,7 @@ export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
 export type EnemyTankKind = 'rifleman' | 'rocketeer' | 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
 export type InfantryKind = Extract<EnemyTankKind, 'rifleman' | 'rocketeer'>;
 export type HouseDoorSide = 'left' | 'right' | 'top' | 'bottom';
-export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair' | 'armory' | 'houseOpen' | 'houseSealed';
+export type CoverKind = 'crate' | 'concrete' | 'rockWall' | 'barrel' | 'mine' | 'repair' | 'armory' | 'houseOpen' | 'houseSealed';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
 export type WeaponId =
   | 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing'

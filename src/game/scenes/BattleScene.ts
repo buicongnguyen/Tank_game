@@ -412,19 +412,23 @@ function coverHealth(config: CoverConfig): number {
   }
 
   if (config.kind === 'concrete') {
-    return 280;
+    return 4;
+  }
+
+  if (config.kind === 'rockWall') {
+    return 8;
   }
 
   if (config.kind === 'houseOpen') {
-    return 480;
+    return 4;
   }
 
   if (config.kind === 'houseSealed') {
-    return 360;
+    return 3;
   }
 
   if (config.kind === 'barrel') {
-    return 70;
+    return 1;
   }
 
   if (config.kind === 'mine') {
@@ -435,7 +439,7 @@ function coverHealth(config: CoverConfig): number {
     return 9999;
   }
 
-  return 120;
+  return 1;
 }
 
 function enemyColor(kind: EnemyTankKind): number {
@@ -1417,7 +1421,11 @@ export class BattleScene extends Phaser.Scene {
       cover.health = 0;
       this.destroyCover(cover, projectile.team, projectile.damage);
     } else {
-      this.damageCover(cover, projectile.damage, projectile.team);
+      // Structural durability is measured in direct ordnance hits so chassis
+      // upgrades do not make a one-shot crate or an eight-shot rock wall vary
+      // wildly. Small-arms fire can still chip cover, but much more slowly.
+      const structuralDamage = projectile.sourceKind === 'rifleman' && projectile.kind === 'shell' ? 0.25 : 1;
+      this.damageCover(cover, structuralDamage, projectile.team);
       this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
     }
 
@@ -1483,8 +1491,9 @@ export class BattleScene extends Phaser.Scene {
     if (isHouse) {
       this.createExplosion(cover.x, cover.y, Math.max(96, cover.width * 0.7), 0xff9b55);
     }
-    this.addFloatingText(cover.x, cover.y - 28, isHouse ? 'House Destroyed' : 'Cover Broken', 0xf0c15a);
-    this.dropCash(cover.x, cover.y, cover.kind === 'concrete' || isHouse ? 22 : 14);
+    const destroyedLabel = cover.kind === 'rockWall' ? 'Rock Wall Broken' : isHouse ? 'House Destroyed' : 'Cover Broken';
+    this.addFloatingText(cover.x, cover.y - 28, destroyedLabel, 0xf0c15a);
+    this.dropCash(cover.x, cover.y, cover.kind === 'concrete' || cover.kind === 'rockWall' || isHouse ? 22 : 14);
 
     if (cover.kind === 'houseSealed') {
       this.releaseHouseGarrison(cover);
@@ -2079,7 +2088,9 @@ export class BattleScene extends Phaser.Scene {
 
       const distance = Phaser.Math.Distance.Between(x, y, cover.x, cover.y);
       if (distance <= radius + Math.max(cover.width, cover.height) * 0.5) {
-        this.damageCover(cover, damage * 0.55, sourceTeam);
+        // Splash is converted from combat HP into structural-hit units. A
+        // normal tank shell contributes roughly half a direct hit as splash.
+        this.damageCover(cover, damage * 0.55 / 95, sourceTeam);
       }
     }
   }
@@ -2524,6 +2535,11 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
+      if (cover.kind === 'rockWall') {
+        this.drawCoverRockWall(graphics, cover);
+        continue;
+      }
+
       if (cover.kind === 'barrel') {
         this.drawCoverBarrel(graphics, cover);
         continue;
@@ -2704,12 +2720,43 @@ export class BattleScene extends Phaser.Scene {
     this.drawCoverHealthBar(graphics, cover, top - 20);
   }
 
+  private drawCoverRockWall(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const stones = Math.max(4, Math.round(cover.width / 38));
+
+    graphics.fillStyle(0x171a18, 0.36);
+    graphics.fillEllipse(cover.x + 6, cover.y + cover.height * 0.38, cover.width * 1.03, cover.height * 0.46);
+    for (let row = 0; row < 2; row += 1) {
+      for (let index = 0; index < stones; index += 1) {
+        const stagger = row === 0 ? 0 : cover.width / stones * 0.45;
+        const stoneWidth = cover.width / stones * 1.08;
+        const x = left + (index + 0.5) * (cover.width / stones) + stagger;
+        if (x + stoneWidth * 0.5 > left + cover.width + 2) {
+          continue;
+        }
+        const y = top + cover.height * (row === 0 ? 0.68 : 0.28);
+        const tone = (index + row) % 3 === 0 ? 0x77796f : (index + row) % 3 === 1 ? 0x656960 : 0x89897c;
+        graphics.fillStyle(tone, 1);
+        graphics.fillEllipse(x, y, stoneWidth, cover.height * 0.56);
+        graphics.lineStyle(2, 0x30342f, 0.9);
+        graphics.strokeEllipse(x, y, stoneWidth, cover.height * 0.56);
+        graphics.fillStyle(0xb4b2a3, 0.2);
+        graphics.fillEllipse(x - stoneWidth * 0.12, y - cover.height * 0.1, stoneWidth * 0.42, cover.height * 0.16);
+      }
+    }
+
+    this.drawCoverHealthBar(graphics, cover, top - 10);
+  }
+
   private drawCoverHouse(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
     const left = cover.x - cover.width * 0.5;
     const top = cover.y - cover.height * 0.5;
     const open = cover.kind === 'houseOpen';
-    const wallColor = open ? 0x8a7354 : 0x746957;
-    const roofColor = open ? 0x4d4032 : 0x403a32;
+    // Breached houses are reinforced concrete shelters; sealed houses are
+    // lighter brick buildings that may release a hidden garrison when broken.
+    const wallColor = open ? 0x7b8282 : 0x985f47;
+    const roofColor = open ? 0x444c50 : 0x51372e;
     const damageRatio = clamp(cover.health / cover.maxHealth, 0, 1);
 
     graphics.fillStyle(0x0b0c10, 0.35);
@@ -2731,6 +2778,18 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillStyle(windowColor, 0.95);
     graphics.fillRect(left + cover.width * 0.24 - 10, top + cover.height * 0.28, 20, 15);
     graphics.fillRect(left + cover.width * 0.76 - 10, top + cover.height * 0.58, 20, 15);
+
+    if (!open) {
+      graphics.lineStyle(1, 0xd3a082, 0.38);
+      const courseHeight = 18;
+      for (let y = top + courseHeight; y < top + cover.height; y += courseHeight) {
+        graphics.lineBetween(left + 4, y, left + cover.width - 4, y);
+        const row = Math.round((y - top) / courseHeight);
+        for (let x = left + (row % 2 === 0 ? 22 : 10); x < left + cover.width - 5; x += 32) {
+          graphics.lineBetween(x, y - courseHeight, x, y);
+        }
+      }
+    }
 
     if (open) {
       const openingLength = 44;
