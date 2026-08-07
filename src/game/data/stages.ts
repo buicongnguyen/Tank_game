@@ -1,4 +1,4 @@
-import type { CoverConfig, MissionConfig } from '../types';
+import type { CoverConfig, HouseDoorSide, InfantryKind, MissionConfig } from '../types';
 
 function commonCovers(offset = 0): MissionConfig['covers'] {
   return [
@@ -55,6 +55,16 @@ function armory(id: string, x: number, y: number): CoverConfig[] {
   return [{ id, kind: 'armory', x, y, width: 54, height: 44 }];
 }
 
+/** Infantry can enter through the visible breach and shelter inside. */
+function openHouse(id: string, x: number, y: number, doorSide: HouseDoorSide): CoverConfig[] {
+  return [{ id, kind: 'houseOpen', x, y, width: 154, height: 112, health: 480, doorSide }];
+}
+
+/** A sealed house releases its hidden infantry only when the structure falls. */
+function sealedHouse(id: string, x: number, y: number, garrison: InfantryKind[]): CoverConfig[] {
+  return [{ id, kind: 'houseSealed', x, y, width: 158, height: 116, health: 360, garrison }];
+}
+
 function clusters(...groups: CoverConfig[][]): CoverConfig[] {
   return groups.flat();
 }
@@ -66,7 +76,7 @@ export const STAGES: MissionConfig[] = [
     codename: 'First Contact',
     kind: 'assault',
     objective: 'Clear the outpost. Only light infantry are holding it.',
-    briefing: 'Your first sortie. The outpost is held by riflemen - their rounds barely scratch your armor, so use the run to learn the throttle, the turret, and the cover.',
+    briefing: 'Your first sortie. The outpost is held by riflemen - their rounds barely scratch your armor, so learn the throttle, turret, and cover. Infantry can shelter inside breached houses; sealed houses may hide another squad.',
     worldWidth: 2100,
     worldHeight: 900,
     palette: {
@@ -83,6 +93,8 @@ export const STAGES: MissionConfig[] = [
       barrelPair('tg-drums-a', 1120, 240),
       bunker('tg-bunker-a', 1440, 620),
       crateNest('tg-nest-b', 1700, 300),
+      openHouse('tg-house-open', 470, 455, 'left'),
+      sealedHouse('tg-house-garrison', 1900, 150, ['rifleman']),
     ),
     enemies: [
       { id: 'tg-rifle-1', kind: 'rifleman', x: 620, y: 340 },
@@ -117,6 +129,8 @@ export const STAGES: MissionConfig[] = [
       wallGate('rp-gate-a', 1360, 450, 240),
       barrelPair('rp-drums-a', 1680, 280),
       bunker('rp-bunker-b', 1780, 640),
+      openHouse('rp-house-open', 460, 780, 'top'),
+      sealedHouse('rp-house-garrison', 1900, 120, ['rocketeer']),
     ),
     enemies: [
       { id: 'rp-rocket-1', kind: 'rocketeer', x: 660, y: 460 },
@@ -151,6 +165,8 @@ export const STAGES: MissionConfig[] = [
       crateNest('mp-nest-b', 1660, 260),
       bunker('mp-bunker-b', 1820, 680),
       barrelPair('mp-drums-a', 2080, 420),
+      openHouse('mp-house-open', 520, 800, 'right'),
+      sealedHouse('mp-house-garrison', 2020, 120, ['rifleman', 'rocketeer']),
     ),
     enemies: [
       { id: 'mp-rifle-1', kind: 'rifleman', x: 620, y: 480 },

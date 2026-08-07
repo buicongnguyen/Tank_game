@@ -64,6 +64,11 @@ new Phaser.Game({
   backgroundColor: '#0a0f0b',
   width: 1280,
   height: 720,
+  input: {
+    // Movement, battlefield aim/fire, and an action/aim stick may all be held
+    // at once on a phone. Phaser defaults to a single touch pointer.
+    activePointers: 3,
+  },
   physics: {
     default: 'arcade',
     arcade: {
@@ -86,4 +91,3 @@ new Phaser.Game({
     touchControls?.setHud(snapshot);
   }, virtualGamepad, battleMusic)],
 });
-

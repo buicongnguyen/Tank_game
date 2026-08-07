@@ -162,7 +162,7 @@ export class GameDirector {
         description: PLAYER_CLASSES[upgrade].description,
         price,
         level: PLAYER_CLASSES[this.playerClass].tier,
-        maxLevel: 3,
+        maxLevel: PLAYER_CLASSES.heavy.tier,
         owned: false,
         maxed: false,
         affordable: this.credits >= price,

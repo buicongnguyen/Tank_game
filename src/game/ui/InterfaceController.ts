@@ -2,7 +2,7 @@ import { GameDirector } from '../core/GameDirector';
 import { WEAPONS } from '../data/weapons';
 import { PLAYER_CLASSES } from '../data/playerClasses';
 import type { TankSfxCue } from '../audio/BattleMusic';
-import type { DifficultyMode, HudSnapshot, PlayerClassId, SessionSnapshot, ShopItemId, WeaponId } from '../types';
+import type { DifficultyMode, HudSnapshot, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId, WeaponId } from '../types';
 
 interface InterfaceRoots {
   hudRoot: HTMLElement;
@@ -95,6 +95,8 @@ export class InterfaceController {
       reloadPercent: 1,
       secondaryPercent: 1,
       specialPercent: 1,
+      ammo: this.sessionSnapshot.tankStats.ammoCapacity,
+      ammoCapacity: this.sessionSnapshot.tankStats.ammoCapacity,
       repairCharges: this.sessionSnapshot.tankStats.repairCharges,
     };
     const hud: HudSnapshot = this.hudSnapshot ?? {
@@ -142,6 +144,7 @@ export class InterfaceController {
           <span>ARM ${tank.armor.toFixed(2)}x</span>
           <span>SPD ${Math.round(tank.speed)}</span>
           <span class="hud-credits">$${hud.credits}</span>
+          <span>AMMO ${tank.ammo}/${tank.ammoCapacity}</span>
           <span>RPR x${tank.repairCharges}</span>
         </div>
         ${hud.boss ? `
@@ -164,7 +167,6 @@ export class InterfaceController {
         </div>
         <div class="hud-progress-line">${hud.progressText}</div>
         <div class="cooldown-strip cooldown-strip-slim">
-          <span style="--fill:${Math.round(tank.reloadPercent * 100)}%">Cannon</span>
           <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label} L${hud.weapon.level}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}</span>
           <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
         </div>
@@ -298,44 +300,183 @@ export class InterfaceController {
   }
 
   private renderShop(snapshot: SessionSnapshot): string {
-    const groups: Array<{ title: string; kind: 'chassis' | 'stat' | 'weapon' }> = [
-      { title: 'Chassis', kind: 'chassis' },
-      { title: 'Upgrades', kind: 'stat' },
-      { title: 'Weapons', kind: 'weapon' },
+    const statEntries = snapshot.shop.filter((entry) => entry.kind === 'stat');
+    const chassisEntry = snapshot.shop.find((entry) => entry.kind === 'chassis');
+    const unit = PLAYER_CLASSES[snapshot.playerClass];
+    const weaponGroups: Array<{ title: string; subtitle: string; ids: Array<ShopItemId | WeaponId> }> = [
+      { title: 'Gun', subtitle: 'Rifles and precision arms', ids: ['rifle', 'shotgun', 'sniper', 'laser'] },
+      { title: 'Rocket', subtitle: 'Launchers and explosives', ids: ['rocket', 'launcher', 'mortar', 'homing', 'gasBomb'] },
+      {
+        title: unit.infantry ? 'Heavy Weapon' : 'Main Turret',
+        subtitle: unit.infantry ? 'Portable high-impact weapons' : 'Tank cannon systems',
+        ids: ['damage', 'railgun', 'scattergun'],
+      },
+      { title: 'Machine Gun', subtitle: 'Rapid and close-range fire', ids: ['machineGun', 'autocannon', 'flamer'] },
+    ];
+    const statRows: ShopItemId[][] = [
+      ['armor', 'shield'],
+      ['engine', 'reload'],
+      ['capacity'],
+      ['repair'],
     ];
 
     return `
       <div class="shop-panel">
         <div class="shop-head">
-          <span>Field Depot</span>
+          <span>Field Depot Loadout</span>
           <strong class="shop-wallet">$${snapshot.credits}</strong>
         </div>
-        ${groups.map((group) => {
-          const entries = snapshot.shop.filter((entry) => entry.kind === group.kind);
-          if (entries.length === 0) {
-            return '';
-          }
-          return `
-            <div class="shop-group">
-              <h4>${group.title}</h4>
-              <div class="shop-grid">
-                ${entries.map((entry) => `
-                  <button type="button" class="shop-card ${entry.owned ? 'is-owned' : ''} ${entry.maxed ? 'is-maxed' : ''}"
-                          data-buy="${entry.id}" ${entry.maxed || !entry.affordable ? 'disabled' : ''}>
-                    <strong>${entry.label}</strong>
-                    <small>${entry.description}</small>
-                    <span class="shop-price">
-                      ${entry.maxed
-                        ? `MAX &middot; Lv ${entry.level}/${entry.maxLevel}`
-                        : `$${entry.price} &middot; ${entry.owned || entry.kind === 'chassis' ? 'Upgrade' : 'Buy'} &middot; Lv ${entry.level}/${entry.maxLevel}`}
-                    </span>
-                  </button>
-                `).join('')}
-              </div>
+        <div class="shop-loadout">
+          <section class="shop-column shop-weapons" aria-label="Weapon upgrades">
+            <div class="shop-column-heading">
+              <span>Left Rack</span>
+              <strong>Weapons</strong>
             </div>
-          `;
-        }).join('')}
+            <div class="shop-weapon-matrix">
+              ${weaponGroups.map((group) => {
+                const entries = snapshot.shop.filter((entry) => group.ids.some((id) => id === entry.id));
+                return `
+                  <div class="shop-weapon-group">
+                    <div class="shop-group-title">
+                      <strong>${group.title}</strong>
+                      <small>${group.subtitle}</small>
+                    </div>
+                    <div class="shop-stack">
+                      ${entries.length > 0
+                        ? entries.map((entry) => this.renderShopButton(entry, true)).join('')
+                        : '<span class="shop-empty">Locked by campaign progress</span>'}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </section>
+
+          <section class="shop-unit-bay" aria-label="Current selected unit">
+            <span class="shop-unit-kicker">Current Selected Unit</span>
+            <div class="shop-unit-visual" data-unit="${snapshot.playerClass}">
+              ${this.renderUnitSilhouette(snapshot.playerClass)}
+            </div>
+            <div class="shop-unit-name">
+              <strong>${unit.label}</strong>
+              <span>${unit.infantry ? 'Soldier platform' : `Tank chassis · Tier ${unit.tier}`}</span>
+            </div>
+            <div class="shop-unit-stats">
+              <span><b>${snapshot.tankStats.maxHealth}</b> HP</span>
+              <span><b>${snapshot.tankStats.shieldMax}</b> Shield</span>
+              <span><b>${Math.round(snapshot.tankStats.engine)}</b> Speed</span>
+              <span><b>${snapshot.tankStats.ammoCapacity}</b> Ammo</span>
+            </div>
+            <div class="shop-chassis-slot">
+              ${chassisEntry
+                ? this.renderShopButton(chassisEntry)
+                : '<div class="shop-max-chassis"><strong>Maximum Chassis</strong><small>Heavy platform fully fitted</small></div>'}
+            </div>
+          </section>
+
+          <section class="shop-column shop-systems" aria-label="Vehicle and soldier upgrades">
+            <div class="shop-column-heading">
+              <span>Right Rack</span>
+              <strong>Systems</strong>
+            </div>
+            <div class="shop-system-rows">
+              ${statRows.map((ids) => `
+                <div class="shop-system-row ${ids.length === 1 ? 'is-single' : ''}">
+                  ${ids.map((id) => {
+                    const entry = statEntries.find((candidate) => candidate.id === id);
+                    return entry ? this.renderShopButton(entry, true, this.getShopStatValue(id, snapshot)) : '';
+                  }).join('')}
+                </div>
+              `).join('')}
+            </div>
+          </section>
+        </div>
       </div>
+    `;
+  }
+
+  private renderShopButton(entry: ShopEntry, compact = false, currentValue?: string): string {
+    return `
+      <button type="button" class="shop-card ${compact ? 'is-compact' : ''} ${entry.owned ? 'is-owned' : ''} ${entry.maxed ? 'is-maxed' : ''}"
+              data-buy="${entry.id}" ${entry.maxed || !entry.affordable ? 'disabled' : ''}>
+        <span class="shop-card-topline">
+          <strong>${entry.label}</strong>
+          <em>Lv ${entry.level}/${entry.maxLevel}</em>
+        </span>
+        ${currentValue ? `<span class="shop-current-value">${currentValue}</span>` : ''}
+        <small>${entry.description}</small>
+        <span class="shop-price">
+          ${entry.maxed
+            ? 'MAXIMUM'
+            : `$${entry.price} &middot; ${entry.owned || entry.kind === 'chassis' ? 'Upgrade' : 'Buy'}`}
+        </span>
+      </button>
+    `;
+  }
+
+  private getShopStatValue(id: ShopItemId, snapshot: SessionSnapshot): string {
+    const stats = snapshot.tankStats;
+    if (id === 'armor') {
+      return `${stats.maxHealth} HP · ${stats.armor.toFixed(2)}x armor`;
+    }
+    if (id === 'shield') {
+      return `${stats.shieldMax} shield · +${stats.shieldRegen.toFixed(1)}/s`;
+    }
+    if (id === 'engine') {
+      return `${Math.round(stats.engine)} movement speed`;
+    }
+    if (id === 'reload') {
+      return `${(stats.reloadMs / 1000).toFixed(2)}s auto-load cycle`;
+    }
+    if (id === 'damage') {
+      return `${stats.shellDamage} power · ${Math.round(stats.shellSpeed)} velocity`;
+    }
+    if (id === 'capacity') {
+      return `${stats.ammoCapacity} trigger pulls`;
+    }
+    if (id === 'repair') {
+      return `${stats.repairCharges} field charges`;
+    }
+    return '';
+  }
+
+  private renderUnitSilhouette(playerClass: PlayerClassId): string {
+    if (PLAYER_CLASSES[playerClass].infantry) {
+      const launcher = playerClass === 'rocketeer';
+      return `
+        <svg viewBox="0 0 240 190" role="img" aria-label="${PLAYER_CLASSES[playerClass].label} silhouette">
+          <ellipse class="unit-shadow" cx="120" cy="166" rx="53" ry="12" />
+          <circle class="unit-accent" cx="120" cy="48" r="22" />
+          <path class="unit-body" d="M92 73 Q120 61 148 73 L158 124 Q145 143 120 144 Q95 143 82 124 Z" />
+          <path class="unit-limb" d="M98 137 L82 168 L101 168 L120 143 L139 168 L158 168 L142 137 Z" />
+          <path class="unit-limb" d="M88 84 L55 121 L68 132 L104 103 M151 83 L175 110 L164 124 L137 101" />
+          ${launcher
+            ? '<rect class="unit-weapon" x="133" y="76" width="78" height="19" rx="7" /><rect class="unit-detail" x="180" y="70" width="20" height="31" rx="4" />'
+            : '<rect class="unit-weapon" x="126" y="99" width="82" height="10" rx="3" /><rect class="unit-detail" x="145" y="107" width="18" height="22" rx="3" />'}
+          <path class="unit-highlight" d="M103 77 Q120 70 137 77" />
+        </svg>
+      `;
+    }
+
+    const isMini = playerClass === 'rocketeer';
+    const isLight = playerClass === 'light';
+    const isHeavy = playerClass === 'heavy';
+    const hullLeft = isMini ? 56 : isLight ? 46 : isHeavy ? 25 : 34;
+    const hullRight = isMini ? 184 : isLight ? 194 : isHeavy ? 215 : 206;
+    const trackHeight = isMini ? 21 : isLight ? 25 : isHeavy ? 38 : 31;
+    const turretWidth = isMini ? 64 : isLight ? 76 : isHeavy ? 118 : 96;
+    const barrelWidth = isMini ? 48 : isHeavy ? 72 : 62;
+    return `
+      <svg viewBox="0 0 240 190" role="img" aria-label="${PLAYER_CLASSES[playerClass].label} silhouette">
+        <ellipse class="unit-shadow" cx="120" cy="159" rx="102" ry="15" />
+        <rect class="unit-track" x="${hullLeft - 7}" y="${132 - trackHeight / 2}" width="${hullRight - hullLeft + 14}" height="${trackHeight}" rx="${trackHeight / 2}" />
+        <path class="unit-body" d="M${hullLeft} 121 L${hullLeft + 25} 92 L${hullRight - 32} 88 L${hullRight} 119 L${hullRight - 18} 143 L${hullLeft + 16} 143 Z" />
+        <rect class="unit-detail" x="${hullLeft + 11}" y="127" width="${hullRight - hullLeft - 22}" height="7" rx="3" />
+        <path class="unit-accent" d="M${120 - turretWidth / 2} 91 L${120 - turretWidth * 0.34} 65 L${120 + turretWidth * 0.35} 62 L${120 + turretWidth / 2} 89 L${120 + turretWidth * 0.36} 108 L${120 - turretWidth * 0.4} 108 Z" />
+        <rect class="unit-weapon" x="${120 + turretWidth * 0.3}" y="76" width="${barrelWidth}" height="${isHeavy ? 13 : 9}" rx="4" />
+        ${isHeavy ? '<rect class="unit-armor" x="48" y="99" width="28" height="25" rx="4" /><rect class="unit-armor" x="164" y="95" width="31" height="27" rx="4" />' : ''}
+        <circle class="unit-highlight" cx="120" cy="80" r="8" />
+      </svg>
     `;
   }
 
@@ -383,8 +524,8 @@ export class InterfaceController {
         <span class="intel-kicker">Controls</span>
         <h3>Battle Tank Inputs</h3>
         <ul>
-          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space fires, E fires the sidearm, X swaps it, Q calls artillery, R repairs.</li>
-          <li><strong>Mobile</strong> Left stick drives. Tap the battlefield to aim, or drag the smaller right stick to aim and fire the cannon. Use the buttons for sidearm, swap, artillery, and repair.</li>
+          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space or E fires the selected weapon, X swaps it, Q calls artillery, R repairs.</li>
+          <li><strong>Mobile</strong> Left stick drives. Swap chooses the active weapon; battlefield touch or the smaller right aim/fire stick immediately uses it. Artillery and repair remain separate.</li>
           <li><strong>Armor</strong> Face threats with the hull. Rear hits hurt much more than front hits.</li>
         </ul>
       </article>
@@ -450,8 +591,7 @@ export class InterfaceController {
               <ul class="pause-list">
                 <li><strong>WASD</strong> drive</li>
                 <li><strong>Mouse</strong> aim turret</li>
-                <li><strong>Space</strong> cannon</li>
-                <li><strong>E</strong> ${WEAPONS[snapshot.selectedWeapon].label}</li>
+                <li><strong>Space / E</strong> fire ${WEAPONS[snapshot.selectedWeapon].label}</li>
                 <li><strong>X</strong> swap weapon</li>
                 <li><strong>Q</strong> artillery strike</li>
                 <li><strong>R</strong> field repair</li>
@@ -519,7 +659,7 @@ export class InterfaceController {
           <section class="overlay-card tank-overlay-card shop-overlay-card">
             <span class="overlay-kicker">Between Missions</span>
             <h1>Field Depot</h1>
-            <p>Spend credits on a heavier chassis, permanent vehicle upgrades, new weapons, or weapon levels.</p>
+            <p>Fit the selected unit in the center bay: weapons on the left, chassis in the middle, and combat systems on the right.</p>
             ${this.renderShop(snapshot)}
             <div class="overlay-actions shop-actions">
               <button type="button" class="action-button" data-close-shop>Back to Debrief</button>

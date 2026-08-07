@@ -93,6 +93,11 @@ export class VirtualGamepad {
     state.down = down;
   }
 
+  /** Queue a one-frame press without disturbing a simultaneously held input. */
+  triggerAction(_playerId: 1 | 2, action: GameAction): void {
+    this.actions[action].justPressed = true;
+  }
+
   isDown(_playerId: 1 | 2, action: GameAction): boolean {
     return this.actions[action].down;
   }

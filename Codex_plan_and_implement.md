@@ -14,6 +14,8 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 4. Change mobile gun aiming so tapping the battlefield points the turret in that direction.
 5. Add an end-of-stage button that opens a usable shop for weapon and vehicle purchases/upgrades.
 6. Reserve the lower-left area exclusively for movement and replace the mobile cannon button with a smaller right-side aim/fire stick.
+7. Support a second simultaneous battlefield touch while moving so it aims and fires the cannon.
+8. Make normal aim/fire use the currently selected weapon immediately after swapping, without a separate secondary button.
 
 ## Implementation Summary
 
@@ -32,8 +34,11 @@ Changes:
 - Reserved the full lower-left control zone for movement so touches there cannot reach the battlefield aim handler.
 - Added a smaller fixed right-side aim/fire stick. Dragging establishes the turret direction before firing; a centered tap fires along the current heading.
 - The right stick retains its selected heading after release, preventing aim drift while the tank moves.
+- Normal fire, battlefield touch-fire, and the right aim/fire stick all use the currently selected weapon.
+- Removed the redundant mobile secondary-weapon fire button; the swap button now displays the active weapon and level.
 - Added tap-to-aim through Phaser pointer-down and pointer-move events.
-- Touching the battlefield aims but does not automatically fire.
+- Configured Phaser with three active touch pointers for simultaneous movement, aiming, and actions.
+- A battlefield touch aims and queues one cannon shot without releasing any other held touch input.
 - Desktop mouse input still supports mouse aiming and click-to-fire.
 - Action-button events remain in the DOM overlay and no longer cause the turret to jump toward a button location.
 - Updated the displayed mobile control instructions.
@@ -41,8 +46,8 @@ Changes:
 Expected mobile control layout:
 
 - Bottom-left: movement stick.
-- Bottom-right: smaller aim/fire stick plus secondary weapon, weapon swap, artillery, and repair buttons.
-- Remaining battlefield: tap or drag to aim the turret.
+- Bottom-right: smaller aim/fire stick plus weapon swap, artillery, and repair buttons.
+- Remaining battlefield: tap to aim and fire once, or drag to adjust the turret direction.
 
 ### 2. Mobile performance improvements
 
@@ -223,7 +228,7 @@ Verified:
 - Movement stick is visible and interactive at the bottom-left.
 - Movement stick was measured at 18 px from the left and 12 px above the bottom at an 844 x 390 viewport.
 - The right aim/fire stick measured 96 px, compared with the 148 px movement stick.
-- Tapping the open battlefield changes turret direction.
+- Tapping the open battlefield changes turret direction and fires once.
 - Tapping the empty lower-left movement zone does not change turret direction.
 - Dragging the right stick changes heading before firing, and the heading remains locked after release.
 - Bottom-right action controls remain available.
@@ -253,13 +258,16 @@ Verified from generated intermission markup:
 
 ## Files Changed in the Current Working Tree
 
-- `src/game/audio/BattleMusic.ts`
+- `src/game/core/VirtualGamepad.ts`
 - `src/game/core/GameDirector.ts`
-- `src/game/data/weapons.ts`
+- `src/game/data/playerClasses.ts`
+- `src/game/data/shop.ts`
+- `src/game/data/stages.ts`
 - `src/game/scenes/BattleScene.ts`
 - `src/game/types.ts`
 - `src/game/ui/InterfaceController.ts`
 - `src/game/ui/TouchControls.ts`
+- `src/main.ts`
 - `src/style.css`
 - `Codex_plan_and_implement.md`
 
@@ -271,7 +279,7 @@ These changes are currently uncommitted unless the repository state is changed a
 
 - Confirm tap-to-aim feels correct on a real Android/iOS device, not only a responsive browser viewport.
 - Confirm multi-touch permits holding the movement stick while dragging the right aim/fire stick or pressing action buttons.
-- Confirm tapping or dragging the battlefield does not fire; cannon fire comes from the right aim/fire stick.
+- Confirm a second battlefield touch aims and fires while the movement stick remains held.
 - Confirm desktop mouse click-to-fire behavior remains desirable.
 
 ### Shop/economy
@@ -280,6 +288,26 @@ These changes are currently uncommitted unless the repository state is changed a
 - Review weapon and chassis prices for campaign pacing.
 - Confirm the distinction between lifetime scrap and spendable credits is useful; consider removing one currency if it is redundant.
 - Confirm the final mission should go directly to victory rather than offering one last shop visit.
+
+### Three-column depot redesign
+
+- The shop now uses a weapons / selected-unit / systems composition.
+- The left rack is a 2x2 matrix for Gun, Rocket, Main Turret (or Heavy Weapon for a soldier), and Machine Gun equipment.
+- Shaped Charges appears under Main Turret so that rack has an upgrade from the first shop; late railgun/scattergun systems join it as the campaign advances.
+- The center bay renders a code-native SVG silhouette for the current selected unit, current HP/shield/speed/ammo, and the next chassis purchase.
+- The five unit choices now match the requested progression: Soldier, Mini Tank, Small Tank, Medium Tank, and Heavy Tank.
+- The right rack places health/shield together, movement/auto-loader together, followed by bullet capacity and repair rows.
+- Bullet Capacity is a functional permanent upgrade: each level adds two trigger pulls to the magazine.
+- Combat now tracks magazine ammunition, displays it in the HUD, and auto-loads an empty magazine. Auto Loader upgrades also shorten magazine reload time.
+- Desktop uses left/center/right columns; tablet/landscape mobile puts the center bay first over two racks; portrait mobile uses a single scrollable column with non-overlapping deploy actions.
+
+Browser verification confirmed:
+
+- The desktop shop displays the three requested regions and the medium-tank silhouette.
+- Buying Bullet Capacity deducted $115 and changed the displayed magazine from 10 to 12.
+- Buying Heavy Tank changed the center SVG and unit label, and replayed the capacity upgrade onto the heavy chassis (8 base + 2 purchased = 10).
+- The five menu choices render as Soldier, Mini Tank, Small Tank, Medium Tank, and Heavy Tank.
+- Responsive checks passed at 844x390 and 390x844 with no browser console errors or warnings.
 
 ### Weapon balance
 
@@ -293,6 +321,31 @@ These changes are currently uncommitted unless the repository state is changed a
 - Review tank separation near cover and world boundaries for visible jitter.
 - Confirm delayed effects pause and resume as intended.
 
+### Infantry houses
+
+- `houseOpen` is durable cover with an authored breach on its left, right, top, or bottom edge.
+- Only riflemen and rocketeers can cross that breach; tanks and other vehicles still collide with the full building.
+- Infantry whose center is inside an intact open house gain 80% damage reduction against blast/area damage. Direct incoming shots collide with the house first.
+- An occupant can fire outward when its shot is aligned with the breach. A shot aimed into a wall damages the house normally.
+- `houseSealed` has no entrance and may define a hidden rifleman/rocketeer garrison.
+- Destroying a sealed house creates and alerts its garrison, displays an ambush message, and keeps their spawn clear of the collapsing structure.
+- Pending garrisons count in the HUD and block assault completion, preventing a stage from ending before the hidden soldiers emerge.
+- The first three missions now contain one open shelter and one sealed garrison house, with the first mission briefing teaching the mechanic.
+- The cover review also fixed armory pickup crates incorrectly absorbing projectiles despite being non-solid walk-over items.
+
+Browser verification confirmed:
+
+- Open and sealed houses render distinctly; the breached side has a dark opening plus a green entry arrow.
+- Mission 1 reports `7/7` hostiles (six deployed riflemen plus one hidden garrison soldier).
+- The open house absorbs incoming rounds and remains intact under sustained rifle fire after its health was tuned to 480.
+- No browser console errors or warnings were produced during the infantry/house smoke test.
+
+Claude review focus:
+
+- Confirm the authored doorway width feels forgiving on a physical touch device.
+- Confirm 80% blast reduction and 480/360 open/sealed house health fit campaign balance.
+- Consider adding houses to later missions after the first-three-stage mechanic rollout is playtested.
+
 ### Performance
 
 - Profile on a physical low/mid-range phone.
@@ -303,5 +356,5 @@ These changes are currently uncommitted unless the repository state is changed a
 
 - The repository does not currently provide an automated unit/integration test script in `package.json`.
 - Mobile performance was smoke-tested in a responsive in-app browser, not measured on physical hardware.
-- Weapon upgrades affect the selected secondary weapon system; the main cannon continues to use global vehicle damage/reload upgrades.
+- All normal fire inputs use the selected weapon. Vehicle damage/reload stats are still the shared base values applied before per-weapon scaling.
 - Shop state is campaign-memory only and is not persisted across page reloads or application restarts.

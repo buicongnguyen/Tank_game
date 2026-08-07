@@ -2,10 +2,10 @@ import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad, type GameAction } from '../core/VirtualGamepad';
 import type { HudSnapshot, SessionPhase } from '../types';
 
-type TouchButtonAction = Extract<GameAction, 'fire' | 'secondary' | 'special' | 'repair' | 'switchWeapon'>;
+type TouchButtonAction = Extract<GameAction, 'fire' | 'special' | 'repair' | 'switchWeapon'>;
 
 function isTouchButtonAction(value: string | undefined): value is TouchButtonAction {
-  return value === 'fire' || value === 'secondary' || value === 'special' || value === 'repair' || value === 'switchWeapon';
+  return value === 'fire' || value === 'special' || value === 'repair' || value === 'switchWeapon';
 }
 
 /** Travel from the stick origin, in px, that maps to a fully deflected axis. */
@@ -36,7 +36,6 @@ export class TouchControlsOverlay {
   private readonly buttonResetters: Array<() => void> = [];
   private readonly specialButton: HTMLButtonElement | null;
   private readonly repairButton: HTMLButtonElement | null;
-  private readonly secondaryButton: HTMLButtonElement | null;
   private readonly swapButton: HTMLButtonElement | null;
   /**
    * Strict test: the primary pointer must actually be a finger. A touch-capable
@@ -63,11 +62,6 @@ export class TouchControlsOverlay {
         </div>
         <div class="touch-actions">
           <div class="touch-action-mini">
-            <button type="button" class="touch-button touch-button-mini" data-action="secondary" aria-label="Secondary weapon">
-              ${ICONS.rocket}
-              <span class="key-hint">E</span>
-              <span class="action-caption" data-weapon-label>Rocket</span>
-            </button>
             <button type="button" class="touch-button touch-button-mini" data-action="switchWeapon" data-swap-button hidden aria-label="Swap weapon">
               ${ICONS.swap}
               <span class="key-hint">X</span>
@@ -124,7 +118,6 @@ export class TouchControlsOverlay {
 
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
     this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
-    this.secondaryButton = this.root.querySelector<HTMLButtonElement>('button[data-action="secondary"]');
     this.swapButton = this.root.querySelector<HTMLButtonElement>('button[data-action="switchWeapon"]');
 
     this.bindButtons();
@@ -152,20 +145,13 @@ export class TouchControlsOverlay {
       this.repairButton.dataset.cooldown = snapshot.tank.repairCharges > 0 ? 'false' : 'true';
     }
 
-    const weaponLabel = this.secondaryButton?.querySelector<HTMLElement>('[data-weapon-label]');
-    if (weaponLabel) {
-      weaponLabel.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level}`;
-    }
-    if (this.secondaryButton) {
-      this.secondaryButton.dataset.cooldown = snapshot.tank.secondaryPercent >= 1 ? 'false' : 'true';
-    }
-
     // the swap button only earns its space once a second weapon exists
     if (this.swapButton) {
       const swapDetail = this.swapButton.querySelector<HTMLElement>('[data-swap-detail]');
       this.swapButton.hidden = snapshot.weapon.unlockedCount <= 1;
+      this.swapButton.setAttribute('aria-label', `Swap weapon. Active: ${snapshot.weapon.label} level ${snapshot.weapon.level}`);
       if (swapDetail) {
-        swapDetail.textContent = `${snapshot.weapon.unlockedCount} wpn`;
+        swapDetail.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level} · ${snapshot.tank.ammo}/${snapshot.tank.ammoCapacity}`;
       }
     }
   }
@@ -269,10 +255,9 @@ export class TouchControlsOverlay {
           this.gamepad.setAimAxis(lastAimX, lastAimY);
         }
         if (fireOnTap) {
-          // A centred tap means "fire at the current heading". The quick
-          // down/up pulse leaves justPressed set for the next game update.
-          this.gamepad.setAction(1, 'fire', true);
-          this.gamepad.setAction(1, 'fire', false);
+          // A centred tap means "fire at the current heading" without
+          // disturbing any other finger that is holding an input.
+          this.gamepad.triggerAction(1, 'fire');
         }
       }
       aimDeflected = false;

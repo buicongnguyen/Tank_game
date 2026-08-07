@@ -51,7 +51,7 @@ export const SHOP_STATS: Record<Exclude<ShopItemId, 'chassis'>, ShopStatSpec> = 
   reload: {
     id: 'reload',
     label: 'Auto Loader',
-    description: 'Main gun reloads 14% faster.',
+    description: 'Active weapons cycle and reload faster.',
     basePrice: 120,
     priceGrowth: 1.6,
     maxLevel: 5,
@@ -70,6 +70,17 @@ export const SHOP_STATS: Record<Exclude<ShopItemId, 'chassis'>, ShopStatSpec> = 
     apply: (stats) => {
       stats.shellDamage = Math.round(stats.shellDamage * 1.18);
       stats.shellSpeed += 30;
+    },
+  },
+  capacity: {
+    id: 'capacity',
+    label: 'Bullet Capacity',
+    description: '+2 trigger pulls before the magazine auto-reloads.',
+    basePrice: 115,
+    priceGrowth: 1.52,
+    maxLevel: 5,
+    apply: (stats) => {
+      stats.ammoCapacity += 2;
     },
   },
   repair: {

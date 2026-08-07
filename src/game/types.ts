@@ -2,7 +2,9 @@ export type SessionPhase = 'menu' | 'playing' | 'paused' | 'intermission' | 'gam
 export type DifficultyMode = 'easy' | 'normal' | 'hard' | 'extreme';
 export type MissionKind = 'assault' | 'defense' | 'escort' | 'capture' | 'boss';
 export type EnemyTankKind = 'rifleman' | 'rocketeer' | 'scout' | 'raider' | 'siege' | 'turret' | 'convoy' | 'boss';
-export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair' | 'armory';
+export type InfantryKind = Extract<EnemyTankKind, 'rifleman' | 'rocketeer'>;
+export type HouseDoorSide = 'left' | 'right' | 'top' | 'bottom';
+export type CoverKind = 'crate' | 'concrete' | 'barrel' | 'mine' | 'repair' | 'armory' | 'houseOpen' | 'houseSealed';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
 export type WeaponId =
   | 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing'
@@ -11,7 +13,7 @@ export type WeaponId =
   | 'laser' | 'gasBomb';
 export type PlayerClassId = 'rifleman' | 'rocketeer' | 'light' | 'medium' | 'heavy';
 export type ShopItemId =
-  | 'chassis' | 'armor' | 'shield' | 'engine' | 'reload' | 'damage' | 'repair';
+  | 'chassis' | 'armor' | 'shield' | 'engine' | 'reload' | 'damage' | 'capacity' | 'repair';
 
 export interface StagePalette {
   sky: number;
@@ -30,6 +32,10 @@ export interface CoverConfig {
   width: number;
   height: number;
   health?: number;
+  /** Open houses admit infantry through this side and protect them inside. */
+  doorSide?: HouseDoorSide;
+  /** Sealed-house infantry are created only after the building is destroyed. */
+  garrison?: InfantryKind[];
 }
 
 export interface EnemySpawn {
@@ -99,6 +105,8 @@ export interface TankStats {
   shellSpeed: number;
   secondaryCooldownMs: number;
   specialCooldownMs: number;
+  /** Trigger pulls available before the weapon magazine auto-reloads. */
+  ammoCapacity: number;
   repairCharges: number;
 }
 
@@ -131,6 +139,8 @@ export interface TankHudStatus {
   reloadPercent: number;
   secondaryPercent: number;
   specialPercent: number;
+  ammo: number;
+  ammoCapacity: number;
   repairCharges: number;
 }
 

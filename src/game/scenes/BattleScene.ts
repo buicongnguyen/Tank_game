@@ -10,7 +10,9 @@ import type {
   CaptureZoneConfig,
   CoverConfig,
   EnemyTankKind,
+  HouseDoorSide,
   HudSnapshot,
+  InfantryKind,
   MissionConfig,
   SessionSnapshot,
   TankStats,
@@ -51,6 +53,7 @@ interface TankRuntime {
   idleSweep: number;
   shield: number;
   shieldMax: number;
+  shelteredBy?: string;
 }
 
 interface PickupRuntime {
@@ -101,6 +104,9 @@ interface CoverRuntime {
   maxHealth: number;
   solid: boolean;
   spent: boolean;
+  doorSide: HouseDoorSide;
+  garrison: InfantryKind[];
+  garrisonReleased: boolean;
 }
 
 interface CaptureRuntime extends CaptureZoneConfig {
@@ -337,6 +343,13 @@ function circleRectOverlap(cx: number, cy: number, radius: number, rect: CoverRu
   return Phaser.Math.Distance.Between(cx, cy, nearestX, nearestY) <= radius;
 }
 
+function pointInsideCover(x: number, y: number, cover: CoverRuntime, inset = 0): boolean {
+  return x >= cover.x - cover.width * 0.5 + inset
+    && x <= cover.x + cover.width * 0.5 - inset
+    && y >= cover.y - cover.height * 0.5 + inset
+    && y <= cover.y + cover.height * 0.5 - inset;
+}
+
 function segmentPointHitTime(
   startX: number,
   startY: number,
@@ -400,6 +413,14 @@ function coverHealth(config: CoverConfig): number {
 
   if (config.kind === 'concrete') {
     return 280;
+  }
+
+  if (config.kind === 'houseOpen') {
+    return 480;
+  }
+
+  if (config.kind === 'houseSealed') {
+    return 360;
   }
 
   if (config.kind === 'barrel') {
@@ -482,6 +503,9 @@ export class BattleScene extends Phaser.Scene {
   private projectileSerial = 1;
   private secondaryTimer = 0;
   private secondaryCooldownMax = 1;
+  private ammo = 0;
+  private magazineReloadTimer = 0;
+  private magazineReloadMax = 1;
   private specialTimer = 0;
   private repairCharges = 0;
   private convoyEscapeCountdownMs = 0;
@@ -538,7 +562,14 @@ export class BattleScene extends Phaser.Scene {
       }
     };
     this.input.on('pointermove', pointTurretAtPointer);
-    this.input.on('pointerdown', pointTurretAtPointer);
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      pointTurretAtPointer(pointer);
+      if (pointer.wasTouch && this.snapshot?.phase === 'playing') {
+        // Phaser receives this as a separate pointer from the DOM movement
+        // stick. Queue one cannon shot without releasing either held stick.
+        this.gamepad.triggerAction(1, 'fire');
+      }
+    });
 
     this.director.subscribe((snapshot) => {
       this.snapshot = snapshot;
@@ -569,11 +600,13 @@ export class BattleScene extends Phaser.Scene {
     this.missionElapsed += delta;
     this.secondaryTimer = Math.max(0, this.secondaryTimer - delta);
     this.specialTimer = Math.max(0, this.specialTimer - delta);
+    this.updateMagazine(snapshot.tankStats, delta);
 
     this.updatePlayer(player, mission, snapshot.tankStats, dt, delta);
     this.updateEscort(dt);
     this.updateEnemies(player, mission, snapshot.difficulty, dt, delta);
     this.resolveTankCollisions(mission);
+    this.updateHouseShelters();
     this.updateConvoyEscapeState(mission, delta);
     this.updateProjectiles(dt);
     this.updateExplosions(delta);
@@ -612,6 +645,9 @@ export class BattleScene extends Phaser.Scene {
     }
     this.floatingTexts = [];
     this.secondaryTimer = 0;
+    this.ammo = snapshot.tankStats.ammoCapacity;
+    this.magazineReloadTimer = 0;
+    this.magazineReloadMax = 1;
     this.specialTimer = snapshot.tankStats.specialCooldownMs * 0.35;
     this.repairCharges = snapshot.tankStats.repairCharges;
     this.convoyEscapeCountdownMs = 0;
@@ -626,6 +662,9 @@ export class BattleScene extends Phaser.Scene {
         maxHealth: health,
         solid: cover.kind !== 'mine' && cover.kind !== 'repair' && cover.kind !== 'armory',
         spent: false,
+        doorSide: cover.doorSide ?? 'right',
+        garrison: [...(cover.garrison ?? [])],
+        garrisonReleased: cover.kind !== 'houseSealed',
       };
     });
     this.enemies = mission.enemies.map((spawn, index) => this.createEnemy(spawn.kind, spawn.id, spawn.x, spawn.y, snapshot.difficulty, spawn.patrol, index));
@@ -684,6 +723,7 @@ export class BattleScene extends Phaser.Scene {
       idleSweep: 0,
       shield: snapshot.tankStats.shieldMax,
       shieldMax: snapshot.tankStats.shieldMax,
+      shelteredBy: undefined,
     };
 
     this.cameras.main.setBounds(0, 0, mission.worldWidth, mission.worldHeight);
@@ -736,6 +776,7 @@ export class BattleScene extends Phaser.Scene {
       idleSweep: seed * 0.9,
       shield: 0,
       shieldMax: 0,
+      shelteredBy: undefined,
     };
   }
 
@@ -805,21 +846,30 @@ export class BattleScene extends Phaser.Scene {
       player.turretAngle = Math.atan2(this.lastPointerWorld.y - player.y, this.lastPointerWorld.x - player.x);
     }
 
-    if (this.wantsFire()) {
-      this.fireProjectile(player, 'player', stats.shellDamage, stats.shellSpeed, 64, 0xf8d46d);
-    }
-
     if (this.wantsSwitchWeapon()) {
       this.director.cycleWeapon();
     }
 
-    if (this.wantsSecondary() && this.secondaryTimer <= 0) {
-      const weapon = this.getSelectedWeapon();
-      const weaponLevel = this.snapshot?.weaponLevels[weapon.id] ?? 1;
-      const upgradeSteps = Math.max(0, weaponLevel - 1);
-      this.secondaryCooldownMax = stats.secondaryCooldownMs * weapon.cooldownScale * Math.pow(0.9, upgradeSteps);
-      this.secondaryTimer = this.secondaryCooldownMax;
-      this.fireSelectedWeapon(player, stats, weapon);
+    // Normal fire always uses the currently selected weapon. The legacy E /
+    // secondary input remains an alias for desktop players, but mobile no
+    // longer needs a separate weapon-fire button after swapping.
+    const normalFire = this.wantsFire();
+    const legacySecondaryFire = this.wantsSecondary();
+    if ((normalFire || legacySecondaryFire) && this.secondaryTimer <= 0 && this.magazineReloadTimer <= 0) {
+      if (this.ammo <= 0) {
+        this.startMagazineReload(stats);
+      } else {
+        const weapon = this.getSelectedWeapon();
+        const weaponLevel = this.snapshot?.weaponLevels[weapon.id] ?? 1;
+        const upgradeSteps = Math.max(0, weaponLevel - 1);
+        this.secondaryCooldownMax = stats.secondaryCooldownMs * weapon.cooldownScale * Math.pow(0.9, upgradeSteps);
+        this.secondaryTimer = this.secondaryCooldownMax;
+        this.ammo -= 1;
+        this.fireSelectedWeapon(player, stats, weapon);
+        if (this.ammo <= 0) {
+          this.startMagazineReload(stats);
+        }
+      }
     }
 
     if (this.wantsSpecial() && this.specialTimer <= 0) {
@@ -835,6 +885,36 @@ export class BattleScene extends Phaser.Scene {
     }
 
     player.reloadTimer = Math.max(0, player.reloadTimer - delta);
+  }
+
+  private updateMagazine(stats: TankStats, delta: number): void {
+    if (this.magazineReloadTimer <= 0) {
+      this.ammo = Math.min(this.ammo, stats.ammoCapacity);
+      return;
+    }
+
+    this.magazineReloadTimer = Math.max(0, this.magazineReloadTimer - delta);
+    if (this.magazineReloadTimer <= 0) {
+      this.ammo = stats.ammoCapacity;
+      if (this.player?.alive) {
+        this.addFloatingText(this.player.x, this.player.y - 46, 'MAGAZINE READY', 0x95e7ff);
+      }
+    }
+  }
+
+  private startMagazineReload(stats: TankStats): void {
+    if (this.magazineReloadTimer > 0) {
+      return;
+    }
+
+    // Magazine reload must outlast the ordinary per-shot cooldown or capacity
+    // would never create a real combat tradeoff. Auto-loader upgrades reduce
+    // this because they lower the shared reload stat.
+    this.magazineReloadMax = Math.max(1600, stats.reloadMs * 4.2);
+    this.magazineReloadTimer = this.magazineReloadMax;
+    if (this.player?.alive) {
+      this.addFloatingText(this.player.x, this.player.y - 46, 'AUTO LOADING', 0xf0d78b);
+    }
   }
 
   private getKeyboardDriveAxis(): { x: number; y: number } {
@@ -1299,7 +1379,11 @@ export class BattleScene extends Phaser.Scene {
   private handleProjectileCoverHit(projectile: ProjectileRuntime): boolean {
     let nearest: { cover: CoverRuntime; hitTime: number } | undefined;
     for (const cover of this.covers) {
-      if (cover.health <= 0 || cover.kind === 'repair' || cover.spent) {
+      if (cover.health <= 0 || cover.kind === 'repair' || cover.kind === 'armory' || cover.spent) {
+        continue;
+      }
+
+      if (cover.kind === 'houseOpen' && this.projectileCanUseHouseOpening(projectile, cover)) {
         continue;
       }
 
@@ -1329,27 +1413,120 @@ export class BattleScene extends Phaser.Scene {
     projectile.x = Phaser.Math.Linear(projectile.previousX, projectile.x, hitTime);
     projectile.y = Phaser.Math.Linear(projectile.previousY, projectile.y, hitTime);
 
-    if (cover.kind === 'barrel') {
+    if (cover.kind === 'barrel' || cover.kind === 'mine') {
       cover.health = 0;
-      cover.spent = true;
-      this.createExplosion(cover.x, cover.y, 145, 0xff9b42);
-      this.dropCash(cover.x, cover.y, 12);
-      this.damageArea(cover.x, cover.y, 145, projectile.damage * 1.2, projectile.team);
-    } else if (cover.kind === 'mine') {
-      cover.health = 0;
-      cover.spent = true;
-      this.createExplosion(cover.x, cover.y, 118, 0xff7055);
-      this.damageArea(cover.x, cover.y, 118, projectile.damage, projectile.team);
+      this.destroyCover(cover, projectile.team, projectile.damage);
     } else {
-      cover.health -= projectile.damage;
+      this.damageCover(cover, projectile.damage, projectile.team);
       this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
-      if (cover.health <= 0) {
-        this.addFloatingText(cover.x, cover.y - 28, 'Cover Broken', 0xf0c15a);
-        this.dropCash(cover.x, cover.y, cover.kind === 'concrete' ? 22 : 14);
-      }
     }
 
     return true;
+  }
+
+  private projectileCanUseHouseOpening(projectile: ProjectileRuntime, cover: CoverRuntime): boolean {
+    if (!pointInsideCover(projectile.previousX, projectile.previousY, cover)) {
+      return false;
+    }
+
+    const halfWidth = cover.width * 0.5;
+    const halfHeight = cover.height * 0.5;
+    const doorHalfSize = Math.min(24, (cover.doorSide === 'left' || cover.doorSide === 'right' ? cover.height : cover.width) * 0.24);
+    if (cover.doorSide === 'left' || cover.doorSide === 'right') {
+      const edgeX = cover.x + (cover.doorSide === 'right' ? halfWidth : -halfWidth);
+      const timeToEdge = (edgeX - projectile.previousX) / projectile.vx;
+      const exitY = projectile.previousY + projectile.vy * timeToEdge;
+      return timeToEdge >= 0 && Math.abs(exitY - cover.y) <= doorHalfSize;
+    }
+
+    const edgeY = cover.y + (cover.doorSide === 'bottom' ? halfHeight : -halfHeight);
+    const timeToEdge = (edgeY - projectile.previousY) / projectile.vy;
+    const exitX = projectile.previousX + projectile.vx * timeToEdge;
+    return timeToEdge >= 0 && Math.abs(exitX - cover.x) <= doorHalfSize;
+  }
+
+  private damageCover(cover: CoverRuntime, damage: number, sourceTeam: Team): void {
+    if (cover.health <= 0 || cover.spent || damage <= 0) {
+      return;
+    }
+
+    cover.health = Math.max(0, cover.health - damage);
+    if (cover.health <= 0) {
+      this.destroyCover(cover, sourceTeam, damage);
+    }
+  }
+
+  private destroyCover(cover: CoverRuntime, sourceTeam: Team, triggeringDamage: number): void {
+    if (cover.spent) {
+      return;
+    }
+
+    cover.health = 0;
+    cover.solid = false;
+    cover.spent = true;
+    this.clearShelter(cover.id);
+
+    if (cover.kind === 'barrel') {
+      this.createExplosion(cover.x, cover.y, 145, 0xff9b42);
+      this.dropCash(cover.x, cover.y, 12);
+      this.damageArea(cover.x, cover.y, 145, triggeringDamage * 1.2, sourceTeam);
+      return;
+    }
+
+    if (cover.kind === 'mine') {
+      this.createExplosion(cover.x, cover.y, 118, 0xff7055);
+      this.damageArea(cover.x, cover.y, 118, triggeringDamage, sourceTeam);
+      return;
+    }
+
+    const isHouse = cover.kind === 'houseOpen' || cover.kind === 'houseSealed';
+    if (isHouse) {
+      this.createExplosion(cover.x, cover.y, Math.max(96, cover.width * 0.7), 0xff9b55);
+    }
+    this.addFloatingText(cover.x, cover.y - 28, isHouse ? 'House Destroyed' : 'Cover Broken', 0xf0c15a);
+    this.dropCash(cover.x, cover.y, cover.kind === 'concrete' || isHouse ? 22 : 14);
+
+    if (cover.kind === 'houseSealed') {
+      this.releaseHouseGarrison(cover);
+    }
+  }
+
+  private releaseHouseGarrison(cover: CoverRuntime): void {
+    if (cover.garrisonReleased) {
+      return;
+    }
+
+    cover.garrisonReleased = true;
+    const difficulty = this.snapshot?.difficulty;
+    const mission = this.mission;
+    if (!difficulty || !mission || cover.garrison.length === 0) {
+      return;
+    }
+
+    const count = cover.garrison.length;
+    cover.garrison.forEach((kind, index) => {
+      const angle = -Math.PI * 0.5 + (index - (count - 1) * 0.5) * 0.72;
+      const distance = Math.max(cover.width, cover.height) * 0.58 + 26;
+      const x = clamp(cover.x + Math.cos(angle) * distance, 35, mission.worldWidth - 35);
+      const y = clamp(cover.y + Math.sin(angle) * distance, 35, mission.worldHeight - 35);
+      const enemy = this.createEnemy(kind, `${cover.id}-garrison-${index + 1}`, x, y, difficulty, undefined, this.enemies.length + index);
+      enemy.alerted = true;
+      enemy.reloadTimer = 650 + index * 180;
+      this.enemies.push(enemy);
+    });
+
+    this.addFloatingText(cover.x, cover.y - 54, `AMBUSH x${count}`, 0xff7447);
+  }
+
+  private clearShelter(coverId: string): void {
+    if (this.player?.shelteredBy === coverId) {
+      this.player.shelteredBy = undefined;
+    }
+    for (const enemy of this.enemies) {
+      if (enemy.shelteredBy === coverId) {
+        enemy.shelteredBy = undefined;
+      }
+    }
   }
 
   private updateExplosions(delta: number): void {
@@ -1617,7 +1794,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (mission.kind === 'assault' && this.enemies.every((enemy) => !enemy.alive)) {
+    if (mission.kind === 'assault' && this.enemies.every((enemy) => !enemy.alive) && this.pendingGarrisonCount() === 0) {
       this.completeMission();
       return;
     }
@@ -1806,6 +1983,13 @@ export class BattleScene extends Phaser.Scene {
       multiplier *= 0.58;
     }
 
+    const shelter = target.shelteredBy
+      ? this.covers.find((cover) => cover.id === target.shelteredBy && cover.kind === 'houseOpen' && cover.health > 0 && !cover.spent)
+      : undefined;
+    if (shelter && pointInsideCover(target.x, target.y, shelter, 4)) {
+      multiplier *= 0.2;
+    }
+
     const applied = damage * multiplier * (target.team === 'player' && this.snapshot ? 1 / this.snapshot.tankStats.armor : 1);
 
     // Shields soak first and stop regenerating for a moment after a hit, which
@@ -1889,17 +2073,13 @@ export class BattleScene extends Phaser.Scene {
     }
 
     for (const cover of this.covers) {
-      if (cover.health <= 0 || cover.kind === 'repair') {
+      if (cover.health <= 0 || cover.kind === 'repair' || cover.kind === 'armory' || cover.spent) {
         continue;
       }
 
       const distance = Phaser.Math.Distance.Between(x, y, cover.x, cover.y);
       if (distance <= radius + Math.max(cover.width, cover.height) * 0.5) {
-        cover.health -= damage * 0.55;
-        if (cover.health <= 0 && cover.kind === 'barrel' && !cover.spent) {
-          cover.spent = true;
-          this.createExplosion(cover.x, cover.y, 132, 0xff9b42);
-        }
+        this.damageCover(cover, damage * 0.55, sourceTeam);
       }
     }
   }
@@ -2015,6 +2195,10 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
+      if (cover.kind === 'houseOpen' && isInfantry(tank.kind) && this.canPassHouseOpening(tank, cover)) {
+        continue;
+      }
+
       const dx = tank.x - cover.x;
       const dy = tank.y - cover.y;
       const overlapX = cover.width * 0.5 + tank.radius - Math.abs(dx);
@@ -2030,6 +2214,47 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  private canPassHouseOpening(tank: TankRuntime, cover: CoverRuntime): boolean {
+    if (pointInsideCover(tank.x, tank.y, cover, 2)) {
+      return true;
+    }
+
+    const doorHalfSize = Math.min(24, (cover.doorSide === 'left' || cover.doorSide === 'right' ? cover.height : cover.width) * 0.24);
+    const halfWidth = cover.width * 0.5;
+    const halfHeight = cover.height * 0.5;
+    if (cover.doorSide === 'left' || cover.doorSide === 'right') {
+      const edgeX = cover.x + (cover.doorSide === 'right' ? halfWidth : -halfWidth);
+      return Math.abs(tank.y - cover.y) <= doorHalfSize && Math.abs(tank.x - edgeX) <= tank.radius + 8;
+    }
+
+    const edgeY = cover.y + (cover.doorSide === 'bottom' ? halfHeight : -halfHeight);
+    return Math.abs(tank.x - cover.x) <= doorHalfSize && Math.abs(tank.y - edgeY) <= tank.radius + 8;
+  }
+
+  private updateHouseShelters(): void {
+    const openHouses = this.covers.filter((cover) => cover.kind === 'houseOpen' && cover.health > 0 && !cover.spent);
+    const occupants = [this.player, ...this.enemies].filter((tank): tank is TankRuntime => Boolean(tank?.alive));
+    for (const tank of occupants) {
+      if (!isInfantry(tank.kind)) {
+        tank.shelteredBy = undefined;
+        continue;
+      }
+
+      const shelter = openHouses.find((cover) => pointInsideCover(tank.x, tank.y, cover, 5));
+      const previousShelter = tank.shelteredBy;
+      tank.shelteredBy = shelter?.id;
+      if (tank.team === 'player' && shelter && previousShelter !== shelter.id) {
+        this.addFloatingText(tank.x, tank.y - 36, 'HOUSE COVER', 0xa2db7c);
+      }
+    }
+  }
+
+  private pendingGarrisonCount(): number {
+    return this.covers.reduce((total, cover) => (
+      total + (cover.kind === 'houseSealed' && !cover.garrisonReleased && cover.health > 0 ? cover.garrison.length : 0)
+    ), 0);
+  }
+
   private updateCamera(mission: MissionConfig, player: TankRuntime): void {
     const camera = this.cameras.main;
     camera.setScroll(
@@ -2040,7 +2265,8 @@ export class BattleScene extends Phaser.Scene {
 
   private buildHudSnapshot(snapshot: SessionSnapshot, mission: MissionConfig, player: TankRuntime): HudSnapshot {
     const boss = this.enemies.find((enemy) => enemy.kind === 'boss');
-    const enemyAlive = this.enemies.filter((enemy) => enemy.alive).length;
+    const pendingGarrison = this.pendingGarrisonCount();
+    const enemyAlive = this.enemies.filter((enemy) => enemy.alive).length + pendingGarrison;
     const progressText = this.getProgressText(mission);
     const bossStatus: BossStatus | undefined = boss
       ? {
@@ -2060,7 +2286,7 @@ export class BattleScene extends Phaser.Scene {
       progressText,
       enemyCount: {
         alive: enemyAlive,
-        total: this.enemies.length,
+        total: this.enemies.length + pendingGarrison,
       },
       totalScore: snapshot.totalScore,
       scrap: snapshot.scrap,
@@ -2073,8 +2299,12 @@ export class BattleScene extends Phaser.Scene {
         armor: snapshot.tankStats.armor,
         speed: Math.hypot(player.vx, player.vy),
         reloadPercent: 1 - clamp(player.reloadTimer / player.reloadMs, 0, 1),
-        secondaryPercent: 1 - clamp(this.secondaryTimer / this.secondaryCooldownMax, 0, 1),
+        secondaryPercent: this.magazineReloadTimer > 0
+          ? 1 - clamp(this.magazineReloadTimer / this.magazineReloadMax, 0, 1)
+          : 1 - clamp(this.secondaryTimer / this.secondaryCooldownMax, 0, 1),
         specialPercent: 1 - clamp(this.specialTimer / snapshot.tankStats.specialCooldownMs, 0, 1),
+        ammo: this.ammo,
+        ammoCapacity: snapshot.tankStats.ammoCapacity,
         repairCharges: this.repairCharges,
       },
       weapon: {
@@ -2098,6 +2328,11 @@ export class BattleScene extends Phaser.Scene {
         const exitX = mission.exitX;
         const nearestEscapeSeconds = Math.min(...convoys.map((enemy) => Math.max(0, (exitX - enemy.radius - enemy.x) / Math.max(1, enemy.speed))));
         return `Stop convoy: ${convoys.length} carriers - ${Math.ceil(nearestEscapeSeconds)}s to exit`;
+      }
+
+      const hidden = this.pendingGarrisonCount();
+      if (hidden > 0 && this.enemies.every((enemy) => !enemy.alive)) {
+        return `Search sealed houses: ${hidden} hidden infantry`;
       }
 
       return 'Destroy remaining armor';
@@ -2276,6 +2511,11 @@ export class BattleScene extends Phaser.Scene {
 
       if (cover.kind === 'armory') {
         this.drawCoverArmory(graphics, cover);
+        continue;
+      }
+
+      if (cover.kind === 'houseOpen' || cover.kind === 'houseSealed') {
+        this.drawCoverHouse(graphics, cover);
         continue;
       }
 
@@ -2462,6 +2702,80 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.drawCoverHealthBar(graphics, cover, top - 20);
+  }
+
+  private drawCoverHouse(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * 0.5;
+    const top = cover.y - cover.height * 0.5;
+    const open = cover.kind === 'houseOpen';
+    const wallColor = open ? 0x8a7354 : 0x746957;
+    const roofColor = open ? 0x4d4032 : 0x403a32;
+    const damageRatio = clamp(cover.health / cover.maxHealth, 0, 1);
+
+    graphics.fillStyle(0x0b0c10, 0.35);
+    graphics.fillRoundedRect(left + 7, top + 9, cover.width, cover.height, 8);
+    graphics.fillStyle(wallColor, 1);
+    graphics.fillRoundedRect(left, top, cover.width, cover.height, 7);
+    graphics.lineStyle(3, 0x221b14, 0.8);
+    graphics.strokeRoundedRect(left, top, cover.width, cover.height, 7);
+
+    // Roof panels leave a central seam so the building reads clearly from the
+    // top-down camera while the edge breach remains visible.
+    graphics.fillStyle(roofColor, 0.96);
+    graphics.fillTriangle(left + 5, top + 5, cover.x - 4, cover.y, left + 5, top + cover.height - 5);
+    graphics.fillTriangle(left + cover.width - 5, top + 5, cover.x + 4, cover.y, left + cover.width - 5, top + cover.height - 5);
+    graphics.lineStyle(2, 0xb39b73, 0.34);
+    graphics.lineBetween(cover.x, top + 8, cover.x, top + cover.height - 8);
+
+    const windowColor = open ? 0x18211d : 0x171411;
+    graphics.fillStyle(windowColor, 0.95);
+    graphics.fillRect(left + cover.width * 0.24 - 10, top + cover.height * 0.28, 20, 15);
+    graphics.fillRect(left + cover.width * 0.76 - 10, top + cover.height * 0.58, 20, 15);
+
+    if (open) {
+      const openingLength = 44;
+      const openingDepth = 15;
+      graphics.fillStyle(0x090b0d, 1);
+      if (cover.doorSide === 'left' || cover.doorSide === 'right') {
+        const openingX = cover.doorSide === 'right' ? left + cover.width - openingDepth : left;
+        graphics.fillRect(openingX, cover.y - openingLength * 0.5, openingDepth, openingLength);
+        const arrowX = cover.doorSide === 'right' ? left + cover.width + 10 : left - 10;
+        graphics.fillStyle(0xa2db7c, 0.9);
+        graphics.fillTriangle(
+          arrowX + (cover.doorSide === 'right' ? -7 : 7), cover.y,
+          arrowX + (cover.doorSide === 'right' ? 5 : -5), cover.y - 7,
+          arrowX + (cover.doorSide === 'right' ? 5 : -5), cover.y + 7,
+        );
+      } else {
+        const openingY = cover.doorSide === 'bottom' ? top + cover.height - openingDepth : top;
+        graphics.fillRect(cover.x - openingLength * 0.5, openingY, openingLength, openingDepth);
+        const arrowY = cover.doorSide === 'bottom' ? top + cover.height + 10 : top - 10;
+        graphics.fillStyle(0xa2db7c, 0.9);
+        graphics.fillTriangle(
+          cover.x, arrowY + (cover.doorSide === 'bottom' ? -7 : 7),
+          cover.x - 7, arrowY + (cover.doorSide === 'bottom' ? 5 : -5),
+          cover.x + 7, arrowY + (cover.doorSide === 'bottom' ? 5 : -5),
+        );
+      }
+    } else {
+      // Crossed boards make the lack of an entrance explicit without revealing
+      // whether this particular house contains a garrison.
+      graphics.lineStyle(5, 0x9b7748, 0.95);
+      graphics.lineBetween(left + cover.width * 0.38, top + cover.height * 0.36, left + cover.width * 0.62, top + cover.height * 0.64);
+      graphics.lineBetween(left + cover.width * 0.62, top + cover.height * 0.36, left + cover.width * 0.38, top + cover.height * 0.64);
+    }
+
+    if (damageRatio < 0.7) {
+      graphics.lineStyle(2, 0x17120e, 0.75);
+      graphics.lineBetween(cover.x - 18, cover.y - 12, cover.x - 4, cover.y + 2);
+      graphics.lineBetween(cover.x - 4, cover.y + 2, cover.x - 13, cover.y + 17);
+      if (damageRatio < 0.35) {
+        graphics.lineBetween(cover.x + 10, cover.y - 22, cover.x + 23, cover.y - 5);
+        graphics.lineBetween(cover.x + 23, cover.y - 5, cover.x + 15, cover.y + 13);
+      }
+    }
+
+    this.drawCoverHealthBar(graphics, cover, top - 11);
   }
 
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
@@ -2653,6 +2967,17 @@ export class BattleScene extends Phaser.Scene {
     const r = tank.radius;
     const turretColor = darkenColor(color, 0.5);
     const runnerColor = darkenColor(color, 0.32);
+
+    if (art.chassis === 'infantry' && tank.shelteredBy) {
+      const pulse = 0.7 + Math.sin(this.missionElapsed / 220) * 0.15;
+      graphics.fillStyle(color, 0.65);
+      graphics.fillCircle(tank.x, tank.y, 6);
+      graphics.lineStyle(2, tank.team === 'player' ? 0xa2db7c : 0xff8a68, pulse);
+      graphics.strokeCircle(tank.x, tank.y, 12);
+      graphics.lineBetween(tank.x - 10, tank.y - 12, tank.x, tank.y - 18);
+      graphics.lineBetween(tank.x, tank.y - 18, tank.x + 10, tank.y - 12);
+      return;
+    }
 
     if (art.chassis === 'infantry') {
       this.drawInfantry(graphics, tank, art);

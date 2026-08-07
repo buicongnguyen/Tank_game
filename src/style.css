@@ -2251,7 +2251,9 @@ a {
 }
 
 .shop-overlay-card {
-  width: min(980px, 100%);
+  width: min(1220px, 100%);
+  max-height: calc(100% - 20px);
+  overflow: auto;
 }
 
 .shop-actions {
@@ -2263,6 +2265,304 @@ a {
 
 .shop-card strong {
   font-size: 0.84rem;
+}
+
+.shop-loadout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(230px, 0.78fr) minmax(0, 1fr);
+  grid-template-areas: "weapons unit systems";
+  align-items: start;
+  gap: 12px;
+}
+
+.shop-column,
+.shop-unit-bay {
+  min-width: 0;
+  border: 1px solid rgba(255, 242, 196, 0.16);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+}
+
+.shop-column {
+  padding: 11px;
+}
+
+.shop-weapons {
+  grid-area: weapons;
+}
+
+.shop-systems {
+  grid-area: systems;
+}
+
+.shop-column-heading,
+.shop-group-title {
+  display: grid;
+  gap: 2px;
+}
+
+.shop-column-heading {
+  margin-bottom: 9px;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid rgba(255, 242, 196, 0.13);
+}
+
+.shop-column-heading > span,
+.shop-unit-kicker {
+  color: #efb648;
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.shop-column-heading > strong {
+  font-family: var(--font-title);
+  font-size: 1.15rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.shop-weapon-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shop-weapon-group {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(149, 231, 255, 0.13);
+  border-radius: 11px;
+  background: rgba(6, 13, 12, 0.38);
+}
+
+.shop-group-title {
+  min-height: 38px;
+  margin-bottom: 6px;
+}
+
+.shop-group-title strong {
+  color: #dff6ff;
+  font-size: 0.73rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.shop-group-title small,
+.shop-empty {
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+.shop-stack,
+.shop-system-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.shop-system-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.shop-system-row.is-single {
+  grid-template-columns: 1fr;
+}
+
+.shop-card.is-compact {
+  min-width: 0;
+  padding: 7px 8px;
+  gap: 2px;
+}
+
+.shop-card-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.shop-card-topline strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-card-topline em {
+  flex: 0 0 auto;
+  color: rgba(255, 242, 196, 0.55);
+  font-size: 0.55rem;
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+.shop-current-value {
+  color: #95e7ff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.18;
+}
+
+.shop-card.is-compact small {
+  font-size: 0.58rem;
+}
+
+.shop-card.is-compact .shop-price {
+  font-size: 0.6rem;
+}
+
+.shop-unit-bay {
+  grid-area: unit;
+  padding: 12px;
+  display: grid;
+  gap: 9px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(239, 182, 72, 0.16), transparent 42%),
+    linear-gradient(155deg, rgba(24, 36, 28, 0.96), rgba(8, 13, 10, 0.96));
+  border-color: rgba(239, 182, 72, 0.38);
+  box-shadow: inset 0 0 36px rgba(0, 0, 0, 0.32);
+}
+
+.shop-unit-visual {
+  position: relative;
+  min-height: 164px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(239, 182, 72, 0.18);
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(149, 231, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(149, 231, 255, 0.045) 1px, transparent 1px),
+    rgba(0, 0, 0, 0.22);
+  background-size: 22px 22px;
+  overflow: hidden;
+}
+
+.shop-unit-visual::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 14px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(149, 231, 255, 0.65), transparent);
+}
+
+.shop-unit-visual svg {
+  width: min(100%, 250px);
+  height: 174px;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+}
+
+.shop-unit-visual .unit-shadow {
+  fill: rgba(0, 0, 0, 0.42);
+}
+
+.shop-unit-visual .unit-track {
+  fill: #171b18;
+  stroke: #667066;
+  stroke-width: 3;
+}
+
+.shop-unit-visual .unit-body,
+.shop-unit-visual .unit-limb {
+  fill: #526052;
+  stroke: #a9b7a0;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.shop-unit-visual .unit-accent {
+  fill: #b88938;
+  stroke: #f0d78b;
+  stroke-width: 3;
+}
+
+.shop-unit-visual .unit-weapon,
+.shop-unit-visual .unit-armor {
+  fill: #252b28;
+  stroke: #c8d1c7;
+  stroke-width: 3;
+}
+
+.shop-unit-visual .unit-detail {
+  fill: #202720;
+}
+
+.shop-unit-visual .unit-highlight {
+  fill: none;
+  stroke: #95e7ff;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.shop-unit-name {
+  display: grid;
+  gap: 2px;
+}
+
+.shop-unit-name strong {
+  font-family: var(--font-title);
+  color: #f0d78b;
+  font-size: 1.4rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shop-unit-name span {
+  color: var(--muted);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.shop-unit-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.shop-unit-stats span {
+  padding: 6px 4px;
+  border: 1px solid rgba(255, 242, 196, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+.shop-unit-stats b {
+  display: block;
+  color: var(--paper);
+  font-size: 0.76rem;
+}
+
+.shop-chassis-slot .shop-card {
+  width: 100%;
+}
+
+.shop-max-chassis {
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(162, 219, 124, 0.34);
+  border-radius: 10px;
+  background: rgba(162, 219, 124, 0.08);
+}
+
+.shop-max-chassis strong {
+  color: #a2db7c;
+  font-size: 0.78rem;
+}
+
+.shop-max-chassis small {
+  color: var(--muted);
+  font-size: 0.6rem;
 }
 
 .shop-card small {
@@ -2289,8 +2589,75 @@ a {
     grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   }
 
+  .shop-overlay-card {
+    width: min(760px, calc(100% - 16px));
+  }
+
+  .shop-loadout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "unit unit"
+      "weapons systems";
+  }
+
+  .shop-unit-bay {
+    grid-template-columns: minmax(180px, 0.85fr) minmax(190px, 1fr);
+    grid-template-areas:
+      "visual kicker"
+      "visual name"
+      "visual stats"
+      "visual chassis";
+    align-items: center;
+    text-align: left;
+  }
+
+  .shop-unit-kicker { grid-area: kicker; }
+  .shop-unit-visual { grid-area: visual; }
+  .shop-unit-name { grid-area: name; }
+  .shop-unit-stats { grid-area: stats; }
+  .shop-chassis-slot { grid-area: chassis; }
+
   .class-card small,
   .shop-card small {
     display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .shop-overlay-card {
+    width: min(440px, calc(100% - 10px));
+  }
+
+  .shop-loadout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "unit"
+      "weapons"
+      "systems";
+  }
+
+  .shop-unit-bay {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "kicker"
+      "visual"
+      "name"
+      "stats"
+      "chassis";
+    text-align: center;
+  }
+
+  .shop-unit-visual {
+    min-height: 145px;
+  }
+
+  .shop-unit-visual svg {
+    height: 150px;
+  }
+
+  .shop-actions {
+    position: static;
+    padding-top: 8px;
+    background: none;
   }
 }
