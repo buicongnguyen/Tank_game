@@ -18,6 +18,7 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 8. Make normal aim/fire use the currently selected weapon immediately after swapping, without a separate secondary button.
 9. Shorten Mission 7, Relay Hold, to a mobile-friendly objective duration.
 10. Rebalance destructible cover and add durable rock walls.
+11. Allow a failed campaign to continue from any previously played stage.
 
 ## Implementation Summary
 
@@ -34,6 +35,13 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 - Breached concrete shelters withstand four direct ordnance hits and continue to admit and protect infantry through their visible opening.
 - Rock walls were added to the shared battlefield cover layout and withstand eight direct ordnance hits, twice the durability of a concrete shelter.
 - Soldier small-arms rounds deal one-quarter structural damage; rockets and vehicle shells deal one full structural hit. Explosion splash is normalized into partial structural damage.
+
+### 0.2 Failure recovery and stage selection
+
+- The Mission Failed overlay lists every campaign stage, enables only missions the player has already reached, and marks the failed mission as the retry option.
+- Continuing from a selected mission preserves the current unit, weapons, upgrades, credits, salvage, score, and difficulty.
+- Starting a completely new campaign remains available as a separate action.
+- Completed-stage progress is tracked as a furthest-reached frontier, so replaying an earlier mission cannot unlock later stages twice or remove weapons already earned farther into the campaign.
 
 ### 1. Mobile movement and aiming
 

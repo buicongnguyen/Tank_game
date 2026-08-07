@@ -191,6 +191,7 @@ export class InterfaceController {
       view: this.intermissionView,
       cls: this.selectedClass,
       difficulty: this.selectedDifficulty,
+      completed: snapshot.completedMissions,
       weapon: snapshot.selectedWeapon,
       shop: live ? '' : snapshot.shop.map((entry) => `${entry.id}:${entry.level}:${entry.owned}:${entry.affordable}`),
     });
@@ -265,6 +266,16 @@ export class InterfaceController {
     const resumeButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-resume]');
     for (const button of resumeButtons) {
       button.addEventListener('click', () => this.director.resumeGame());
+    }
+
+    const continueButtons = this.overlayRoot.querySelectorAll<HTMLButtonElement>('button[data-continue-mission]');
+    for (const button of continueButtons) {
+      button.addEventListener('click', () => {
+        const missionIndex = Number(button.dataset.continueMission);
+        this.startMusic?.();
+        this.playSfx?.('deploy', 0.9);
+        this.director.continueFromMission(missionIndex);
+      });
     }
   }
 
@@ -697,17 +708,45 @@ export class InterfaceController {
 
     if (snapshot.phase === 'gameover') {
       const failureReason = snapshot.failureReason ?? 'Mission failed';
+      const highestPlayedIndex = Math.min(
+        snapshot.missions.length - 1,
+        Math.max(snapshot.currentMissionIndex, snapshot.completedMissions),
+      );
       return `
-        <section class="overlay-card tank-overlay-card">
+        <section class="overlay-card tank-overlay-card failure-overlay-card">
           <span class="overlay-kicker danger">${failureReason}</span>
           <h1>Mission Failed</h1>
           <p>
             You reached ${mission.codename} with a score of
             <strong>${snapshot.totalScore.toLocaleString()}</strong>. ${this.getFailureAdvice(failureReason)}
           </p>
+          <div class="mission-retry-panel" aria-label="Choose a previously played mission">
+            <div class="mission-retry-heading">
+              <span>Continue Campaign</span>
+              <small>Your unit, weapons, upgrades, credits, and score are preserved.</small>
+            </div>
+            <div class="mission-retry-grid">
+              ${snapshot.missions.map((playedMission, index) => {
+                const unlocked = index <= highestPlayedIndex;
+                const current = index === snapshot.currentMissionIndex;
+                return `
+                  <button
+                    type="button"
+                    class="mission-retry-button ${current ? 'is-current' : ''}"
+                    ${unlocked ? `data-continue-mission="${index}"` : 'disabled'}
+                    aria-label="${unlocked ? `${current ? 'Retry' : 'Continue from'} mission ${index + 1}: ${playedMission.codename}` : `Mission ${index + 1} locked`}"
+                  >
+                    <span>${unlocked ? `Mission ${index + 1}` : `Locked ${index + 1}`}</span>
+                    <strong>${unlocked ? playedMission.codename : 'Not Reached'}</strong>
+                    <small>${current ? 'Retry failed stage' : unlocked ? 'Previously played' : 'Complete earlier stages'}</small>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
           ${this.renderDifficultySelector()}
           <div class="overlay-actions">
-            <button type="button" class="action-button primary" data-start>Retry Campaign</button>
+            <button type="button" class="action-button" data-start>Start New Campaign</button>
           </div>
         </section>
       `;

@@ -1054,6 +1054,93 @@ a {
   box-shadow: inset 0 0 0 1px rgba(255, 242, 196, 0.12);
 }
 
+.failure-overlay-card {
+  width: min(820px, 100%);
+  max-height: calc(100% - 20px);
+  overflow: auto;
+}
+
+.mission-retry-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.mission-retry-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mission-retry-heading > span {
+  color: var(--paper);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.78rem;
+}
+
+.mission-retry-heading small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.mission-retry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 8px;
+  max-height: 270px;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.mission-retry-button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--paper);
+  border: 1px solid rgba(255, 242, 196, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.mission-retry-button:hover:not(:disabled),
+.mission-retry-button:focus-visible:not(:disabled) {
+  border-color: rgba(239, 182, 72, 0.66);
+  background: rgba(239, 182, 72, 0.12);
+  outline: none;
+}
+
+.mission-retry-button.is-current {
+  border-color: rgba(255, 132, 95, 0.72);
+  background: linear-gradient(135deg, rgba(255, 132, 95, 0.2), rgba(239, 182, 72, 0.08));
+}
+
+.mission-retry-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mission-retry-button span,
+.mission-retry-button small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.mission-retry-button span {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.mission-retry-button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .intel-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1147,6 +1234,19 @@ a {
 
   .difficulty-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mission-retry-heading {
+    display: grid;
+  }
+
+  .mission-retry-heading small {
+    text-align: left;
+  }
+
+  .mission-retry-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 220px;
   }
 }
 

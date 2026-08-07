@@ -297,7 +297,13 @@ export class GameDirector {
   }
 
   getUnlockedWeapons(): WeaponId[] {
-    const progression = weaponsUnlockedAt(this.currentMissionIndex);
+    // Replaying an earlier mission must not take away weapons already earned at
+    // the furthest point reached in this campaign.
+    const progressionIndex = Math.min(
+      this.missions.length - 1,
+      Math.max(this.currentMissionIndex, this.completedMissions),
+    );
+    const progression = weaponsUnlockedAt(progressionIndex);
     const starting = PLAYER_CLASSES[this.playerClass].startingWeapon;
     const all = [starting, ...progression, ...this.boughtWeapons];
     return all.filter((id, index) => all.indexOf(id) === index);
@@ -415,7 +421,12 @@ export class GameDirector {
     const salvage = Math.max(0, Math.round(reward.scrap));
     this.scrap += salvage;
     this.credits += salvage;
-    this.completedMissions = Math.min(this.completedMissions + 1, this.missions.length);
+    // This is a progression frontier, not a completion counter. Replaying an
+    // earlier mission must not move the frontier or unlock stages twice.
+    this.completedMissions = Math.max(
+      this.completedMissions,
+      Math.min(this.currentMissionIndex + 1, this.missions.length),
+    );
 
     if (this.currentMissionIndex >= this.missions.length - 1) {
       this.phase = 'victory';
@@ -457,6 +468,32 @@ export class GameDirector {
   failMission(reason = 'Mission failed'): void {
     this.failureReason = reason;
     this.phase = 'gameover';
+    this.emit();
+  }
+
+  /**
+   * Continue the current campaign from any mission the player has already
+   * reached. Loadout, upgrades, score, salvage, and credits are preserved.
+   */
+  continueFromMission(index: number): void {
+    const highestPlayedIndex = Math.min(
+      this.missions.length - 1,
+      Math.max(this.currentMissionIndex, this.completedMissions),
+    );
+    if (
+      this.phase !== 'gameover'
+      || !Number.isInteger(index)
+      || index < 0
+      || index > highestPlayedIndex
+    ) {
+      return;
+    }
+
+    this.currentMissionIndex = index;
+    this.phase = 'playing';
+    this.failureReason = undefined;
+    this.pendingUpgrades = this.getUpgradeOptions(index);
+    this.runSerial += 1;
     this.emit();
   }
 
