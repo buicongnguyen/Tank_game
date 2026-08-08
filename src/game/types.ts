@@ -7,7 +7,7 @@ export type HouseDoorSide = 'left' | 'right' | 'top' | 'bottom';
 export type CoverKind = 'crate' | 'concrete' | 'rockWall' | 'barrel' | 'mine' | 'repair' | 'armory' | 'houseOpen' | 'houseSealed';
 export type UpgradeId = 'armor' | 'engine' | 'reload' | 'shells' | 'special' | 'repair';
 export type WeaponId =
-  | 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing'
+  | 'rocket' | 'autocannon' | 'mortar' | 'railgun' | 'scattergun' | 'homing' | 'drone'
   // soldier-carried arms, named after the rambo_game weapon roster
   | 'rifle' | 'shotgun' | 'sniper' | 'machineGun' | 'flamer' | 'launcher'
   | 'laser' | 'gasBomb';
@@ -127,6 +127,7 @@ export interface ShopEntry {
   owned: boolean;
   maxed: boolean;
   affordable: boolean;
+  lockedReason?: string;
 }
 
 export interface TankHudStatus {

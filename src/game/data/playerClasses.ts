@@ -15,6 +15,9 @@ export interface PlayerClassSpec {
   tier: number;
 }
 
+/** Disable this for campaign release so every new run begins as a Soldier. */
+export const TEST_MODE = true;
+
 export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
   rifleman: {
     id: 'rifleman',
@@ -44,11 +47,11 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
   rocketeer: {
     id: 'rocketeer',
     label: 'Mini Tank',
-    description: 'The smallest tracked platform. Fast and compact, carrying a light rocket launcher.',
-    artKind: 'scout',
+    description: 'A compact tracked gun carrier with twin machine guns and a long burst magazine.',
+    artKind: 'mini',
     infantry: false,
     radius: 21,
-    startingWeapon: 'launcher',
+    startingWeapon: 'machineGun',
     tier: 1,
     stats: {
       maxHealth: 300,
@@ -57,12 +60,12 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
       armor: 0.9,
       engine: 286,
       turnRate: 7.4,
-      reloadMs: 980,
-      shellDamage: 72,
-      shellSpeed: 690,
-      secondaryCooldownMs: 2250,
+      reloadMs: 520,
+      shellDamage: 38,
+      shellSpeed: 880,
+      secondaryCooldownMs: 1650,
       specialCooldownMs: 14000,
-      ammoCapacity: 9,
+      ammoCapacity: 14,
       repairCharges: 2,
     },
   },
@@ -149,9 +152,18 @@ export const CHASSIS_LADDER: PlayerClassId[] = ['rocketeer', 'light', 'medium', 
 export const CHASSIS_PRICE: Record<PlayerClassId, number> = {
   rifleman: 0,
   rocketeer: 180,
-  light: 360,
-  medium: 720,
-  heavy: 1300,
+  light: 420,
+  medium: 820,
+  heavy: 1420,
+};
+
+/** Zero-based mission index that must be completed before a chassis is sold. */
+export const CHASSIS_UNLOCK_MISSION: Record<PlayerClassId, number> = {
+  rifleman: 0,
+  rocketeer: 1,
+  light: 4,
+  medium: 7,
+  heavy: 11,
 };
 
 export function cloneClassStats(id: PlayerClassId): TankStats {

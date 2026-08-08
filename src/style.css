@@ -2244,6 +2244,35 @@ a {
   letter-spacing: 0.16em;
 }
 
+.test-mode-banner,
+.upgrade-recommendation {
+  padding: 9px 11px;
+  border: 1px solid rgba(239, 182, 72, 0.3);
+  border-radius: 10px;
+  background: rgba(239, 182, 72, 0.08);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.test-mode-banner strong,
+.upgrade-recommendation strong {
+  color: var(--accent, #efb648);
+}
+
+.test-mode-note,
+.campaign-starter-panel small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.campaign-starter-panel {
+  padding: 12px;
+  border: 1px solid rgba(162, 219, 124, 0.32);
+  border-radius: 12px;
+  background: rgba(162, 219, 124, 0.07);
+}
+
 .class-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

@@ -1,6 +1,6 @@
 import type { WeaponId } from '../types';
 
-export type WeaponProjectileStyle = 'rocket' | 'shell' | 'mortar' | 'rail' | 'gas';
+export type WeaponProjectileStyle = 'rocket' | 'shell' | 'mortar' | 'rail' | 'gas' | 'drone';
 
 export interface WeaponSpec {
   id: WeaponId;
@@ -144,6 +144,25 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     homingStrength: 3.4,
     arcing: false,
   },
+  drone: {
+    id: 'drone',
+    label: 'Suicide Drone',
+    description: 'Launches a propeller drone that flies over cover, seeks the nearest target, and detonates on impact.',
+    unlockAtMissionIndex: 99,
+    style: 'drone',
+    color: 0xffd766,
+    cooldownScale: 1.7,
+    shots: 1,
+    spread: 0,
+    burstDelayMs: 0,
+    damageScale: 1.65,
+    speedScale: 0.58,
+    blastRadius: 112,
+    ttlMs: 5200,
+    pierce: 0,
+    homingStrength: 5.4,
+    arcing: false,
+  },
   // ---- Soldier-carried arms. Names and roles borrowed from the rambo_game
   // weapon roster (rifle / shotgun / sniper / machineGun / flame / launcher)
   // so an infantry player has a recognisable kit to buy into.
@@ -188,16 +207,16 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   machineGun: {
     id: 'machineGun',
     label: 'Machine Gun',
-    description: 'Long burst of suppressing fire. Melts infantry.',
+    description: 'Eight small rounds fire in one rapid burst. The Mini Tank carries this as its basic gun.',
     unlockAtMissionIndex: 99,
     style: 'shell',
     color: 0xfff0b0,
-    cooldownScale: 0.5,
-    shots: 6,
-    spread: 0.14,
-    burstDelayMs: 65,
-    damageScale: 0.3,
-    speedScale: 1.4,
+    cooldownScale: 0.46,
+    shots: 8,
+    spread: 0.12,
+    burstDelayMs: 42,
+    damageScale: 0.24,
+    speedScale: 1.55,
     blastRadius: 0,
     ttlMs: 1300,
     pierce: 0,
@@ -302,12 +321,12 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
 };
 
 export const WEAPON_ORDER: WeaponId[] = [
-  'rocket', 'autocannon', 'mortar', 'railgun', 'scattergun', 'homing',
+  'rocket', 'autocannon', 'mortar', 'railgun', 'scattergun', 'homing', 'drone',
   'rifle', 'launcher', 'shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb',
 ];
 
 /** Weapons that are bought in the shop rather than unlocked by progress. */
-export const PURCHASABLE_WEAPONS: WeaponId[] = ['shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb'];
+export const PURCHASABLE_WEAPONS: WeaponId[] = ['shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb', 'drone'];
 
 export const WEAPON_PRICE: Partial<Record<WeaponId, number>> = {
   rocket: 180,
@@ -318,6 +337,7 @@ export const WEAPON_PRICE: Partial<Record<WeaponId, number>> = {
   railgun: 560,
   scattergun: 260,
   homing: 520,
+  drone: 560,
   shotgun: 220,
   machineGun: 340,
   sniper: 480,

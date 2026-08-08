@@ -42,7 +42,7 @@ export interface TankArt {
   hasSensorMast: boolean;
 }
 
-export type TankArtKind = EnemyTankKind | 'player';
+export type TankArtKind = EnemyTankKind | 'player' | 'mini';
 
 export const TANK_ART: Record<TankArtKind, TankArt> = {
   // Infantry seen from above: shoulders wider than hips, helmet drawn on top.
@@ -95,6 +95,33 @@ export const TANK_ART: Record<TankArtKind, TankArt> = {
     runnerWidth: 0,
     hasArmorBlocks: false,
     hasSensorMast: false,
+  },
+  // Player Mini Tank: very short tracked hull and a broad twin-gun cupola.
+  mini: {
+    hull: [
+      { x: 0.96, y: 0 },
+      { x: 0.66, y: -0.58 },
+      { x: -0.58, y: -0.58 },
+      { x: -0.94, y: -0.34 },
+      { x: -0.94, y: 0.34 },
+      { x: -0.58, y: 0.58 },
+      { x: 0.66, y: 0.58 },
+    ],
+    turret: [
+      { x: 0.4, y: 0 },
+      { x: 0.12, y: -0.42 },
+      { x: -0.42, y: -0.38 },
+      { x: -0.55, y: 0 },
+      { x: -0.42, y: 0.38 },
+      { x: 0.12, y: 0.42 },
+    ],
+    chassis: 'tracked',
+    barrelLength: 1.4,
+    barrelWidth: 3,
+    runnerOffset: 0.63,
+    runnerWidth: 0.17,
+    hasArmorBlocks: false,
+    hasSensorMast: true,
   },
   player: {
     hull: [

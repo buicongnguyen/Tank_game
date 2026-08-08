@@ -19,6 +19,7 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 9. Shorten Mission 7, Relay Hold, to a mobile-friendly objective duration.
 10. Rebalance destructible cover and add durable rock walls.
 11. Allow a failed campaign to continue from any previously played stage.
+12. Expand tank and gun silhouettes, add a suicide drone, make the Mini Tank use a burst machine gun, and rebalance campaign upgrades.
 
 ## Implementation Summary
 
@@ -39,9 +40,37 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 ### 0.2 Failure recovery and stage selection
 
 - The Mission Failed overlay lists every campaign stage, enables only missions the player has already reached, and marks the failed mission as the retry option.
+- A prominent `Retry Current Stage` button immediately restarts the failed mission without resetting the campaign or requiring a stage selection.
 - Continuing from a selected mission preserves the current unit, weapons, upgrades, credits, salvage, score, and difficulty.
 - Starting a completely new campaign remains available as a separate action.
 - Completed-stage progress is tracked as a furthest-reached frontier, so replaying an earlier mission cannot unlock later stages twice or remove weapons already earned farther into the campaign.
+
+### 0.3 Tank assets, weapons, and campaign balance
+
+Files:
+
+- `src/game/data/progression.ts`
+- `src/game/data/playerClasses.ts`
+- `src/game/data/weapons.ts`
+- `src/game/render/tankArt.ts`
+- `src/game/scenes/BattleScene.ts`
+- `src/game/core/GameDirector.ts`
+- `src/game/ui/InterfaceController.ts`
+- `src/style.css`
+
+Changes:
+
+- Added a dedicated compact Mini Tank battlefield silhouette with a short tracked hull, broad cupola, twin barrels, and sensor mast. The shop silhouette also shows its twin machine guns.
+- Player weapon mounts now change shape with the selected weapon: twin machine/autocannon barrels, large launcher tube, short mortar tube, long rail/laser gun, or side-mounted drone racks.
+- Mini Tank now starts with Machine Gun instead of Launcher. One trigger fires eight small bullets in a rapid burst; its base damage, reload cycle, velocity, and magazine were retuned around sustained fire.
+- Added the purchasable Suicide Drone. It flies over cover, seeks the closest live enemy, and detonates with a large blast. The projectile has a distinct quad-rotor drawing and the tank displays drone racks while it is selected.
+- Added `TEST_MODE` in `playerClasses.ts`. It is currently enabled, so all five units remain selectable at campaign start. Disabling it makes Soldier the only starter; other chassis remain depot purchases.
+- Chassis purchases now have campaign milestones: Mini after Mission 2, Small after Mission 5, Medium after Mission 8, and Heavy after Mission 12. Prices scale with the tier.
+- Upgrading chassis preserves the previous chassis basic weapon, so buying a larger tank does not remove the Mini Tank machine gun or another already acquired loadout.
+- Added a 15-step progression table that raises enemy health, damage, and firing pressure while pairing each mission with a recommended upgrade and tactical reason.
+- Pause, debrief, depot, and campaign-route UI now expose threat level and the recommended counter-upgrade.
+- Mission rewards were increased so every successful stage funds at least one meaningful depot decision; this supports the intended upgrade loop instead of forcing several no-purchase stages.
+- Ridge Bombard was reduced from 120 seconds to 45 seconds, matching the shorter mobile defense pacing established for Relay Hold.
 
 ### 1. Mobile movement and aiming
 

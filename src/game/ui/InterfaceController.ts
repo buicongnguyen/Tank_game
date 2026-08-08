@@ -1,6 +1,7 @@
 import { GameDirector } from '../core/GameDirector';
 import { WEAPONS } from '../data/weapons';
-import { PLAYER_CLASSES } from '../data/playerClasses';
+import { PLAYER_CLASSES, TEST_MODE } from '../data/playerClasses';
+import { progressionForMission } from '../data/progression';
 import type { TankSfxCue } from '../audio/BattleMusic';
 import type { DifficultyMode, HudSnapshot, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId, WeaponId } from '../types';
 
@@ -28,7 +29,7 @@ export class InterfaceController {
   private lastOverlaySignature = '';
   private lastIntelSignature = '';
   private selectedDifficulty: DifficultyMode = 'normal';
-  private selectedClass: PlayerClassId = 'medium';
+  private selectedClass: PlayerClassId = TEST_MODE ? 'medium' : 'rifleman';
   private intermissionView: 'summary' | 'shop' = 'summary';
 
   constructor(roots: InterfaceRoots, director: GameDirector, options: InterfaceOptions = {}) {
@@ -288,10 +289,21 @@ export class InterfaceController {
   }
 
   private renderClassSelector(): string {
+    if (!TEST_MODE) {
+      return `
+        <div class="class-panel campaign-starter-panel">
+          <span>Campaign Starter Unit</span>
+          <strong>Soldier</strong>
+          <small>Additional tanks unlock after several missions and must be purchased with mission credits.</small>
+        </div>
+      `;
+    }
+
     const order: PlayerClassId[] = ['rifleman', 'rocketeer', 'light', 'medium', 'heavy'];
     return `
       <div class="class-panel" aria-label="Choose your unit">
-        <span>Choose Your Unit</span>
+        <span>Test Mode · All Unit Shapes Available</span>
+        <small class="test-mode-note">Campaign release will begin as Soldier; Mini, Small, Medium, and Heavy tanks unlock across the route and must be purchased in the depot.</small>
         <div class="class-grid">
           ${order.map((id) => {
             const spec = PLAYER_CLASSES[id];
@@ -316,7 +328,7 @@ export class InterfaceController {
     const unit = PLAYER_CLASSES[snapshot.playerClass];
     const weaponGroups: Array<{ title: string; subtitle: string; ids: Array<ShopItemId | WeaponId> }> = [
       { title: 'Gun', subtitle: 'Rifles and precision arms', ids: ['rifle', 'shotgun', 'sniper', 'laser'] },
-      { title: 'Rocket', subtitle: 'Launchers and explosives', ids: ['rocket', 'launcher', 'mortar', 'homing', 'gasBomb'] },
+      { title: 'Rocket & Drone', subtitle: 'Launchers, seekers, and explosives', ids: ['rocket', 'launcher', 'mortar', 'homing', 'gasBomb', 'drone'] },
       {
         title: unit.infantry ? 'Heavy Weapon' : 'Main Turret',
         subtitle: unit.infantry ? 'Portable high-impact weapons' : 'Tank cannon systems',
@@ -419,7 +431,9 @@ export class InterfaceController {
         <span class="shop-price">
           ${entry.maxed
             ? 'MAXIMUM'
-            : `$${entry.price} &middot; ${entry.owned || entry.kind === 'chassis' ? 'Upgrade' : 'Buy'}`}
+            : entry.lockedReason
+              ? entry.lockedReason
+              : `$${entry.price} &middot; ${entry.owned || entry.kind === 'chassis' ? 'Upgrade' : 'Buy'}`}
         </span>
       </button>
     `;
@@ -484,7 +498,10 @@ export class InterfaceController {
         <path class="unit-body" d="M${hullLeft} 121 L${hullLeft + 25} 92 L${hullRight - 32} 88 L${hullRight} 119 L${hullRight - 18} 143 L${hullLeft + 16} 143 Z" />
         <rect class="unit-detail" x="${hullLeft + 11}" y="127" width="${hullRight - hullLeft - 22}" height="7" rx="3" />
         <path class="unit-accent" d="M${120 - turretWidth / 2} 91 L${120 - turretWidth * 0.34} 65 L${120 + turretWidth * 0.35} 62 L${120 + turretWidth / 2} 89 L${120 + turretWidth * 0.36} 108 L${120 - turretWidth * 0.4} 108 Z" />
-        <rect class="unit-weapon" x="${120 + turretWidth * 0.3}" y="76" width="${barrelWidth}" height="${isHeavy ? 13 : 9}" rx="4" />
+        ${isMini
+          ? `<rect class="unit-weapon" x="${120 + turretWidth * 0.3}" y="72" width="${barrelWidth}" height="6" rx="3" />
+             <rect class="unit-weapon" x="${120 + turretWidth * 0.3}" y="84" width="${barrelWidth}" height="6" rx="3" />`
+          : `<rect class="unit-weapon" x="${120 + turretWidth * 0.3}" y="76" width="${barrelWidth}" height="${isHeavy ? 13 : 9}" rx="4" />`}
         ${isHeavy ? '<rect class="unit-armor" x="48" y="99" width="28" height="25" rx="4" /><rect class="unit-armor" x="164" y="95" width="31" height="27" rx="4" />' : ''}
         <circle class="unit-highlight" cx="120" cy="80" r="8" />
       </svg>
@@ -561,6 +578,8 @@ export class InterfaceController {
             return `<li class="${owned ? 'is-current' : ''}"><strong>${weapon.label}</strong> - ${weapon.description} <em>(${mission.codename})</em></li>`;
           }).join('')}
           <li><strong>Rocket</strong> - ${WEAPONS.rocket.description} <em>(issued at deployment)</em></li>
+          <li><strong>Machine Gun</strong> - ${WEAPONS.machineGun.description} <em>(Mini Tank basic gun / depot)</em></li>
+          <li><strong>Suicide Drone</strong> - ${WEAPONS.drone.description} <em>(depot purchase)</em></li>
         </ul>
       </article>
       <article class="intel-card">
@@ -571,6 +590,7 @@ export class InterfaceController {
             <li class="${index === snapshot.currentMissionIndex ? 'is-current' : ''}">
               <strong>${mission.codename}</strong>
               <span>${mission.objective}</span>
+              <small>Recommended: ${progressionForMission(index).recommendedUpgrade}</small>
             </li>
           `).join('')}
         </ol>
@@ -587,6 +607,7 @@ export class InterfaceController {
     const nextMission = snapshot.nextMission;
 
     if (snapshot.phase === 'paused') {
+      const progression = progressionForMission(snapshot.currentMissionIndex);
       return `
         <section class="overlay-card tank-overlay-card pause-card">
           <span class="overlay-kicker">Paused - Mission ${snapshot.currentMissionIndex + 1}/${snapshot.missions.length}</span>
@@ -596,6 +617,7 @@ export class InterfaceController {
               <h3>Objective</h3>
               <p>${mission.objective}</p>
               <p>${mission.briefing}</p>
+              <p class="upgrade-recommendation"><strong>Threat ${progression.threatLevel}/15</strong> · Recommended: ${progression.recommendedUpgrade}. ${progression.reason}</p>
             </div>
             <div class="pause-panel">
               <h3>Controls</h3>
@@ -647,6 +669,7 @@ export class InterfaceController {
             Pilot a customizable tank through short armored missions. Drive with weight, aim the turret,
             crack destructible cover, angle your armor, and choose upgrades between fights.
           </p>
+          ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> every chassis is selectable for balance testing.</p>' : ''}
           ${this.renderClassSelector()}
           ${this.renderDifficultySelector()}
           <div class="overlay-actions">
@@ -664,6 +687,7 @@ export class InterfaceController {
       const incomingWeapon = Object.values(WEAPONS).find(
         (weapon) => weapon.unlockAtMissionIndex === snapshot.currentMissionIndex + 1,
       );
+      const nextProgression = progressionForMission(snapshot.currentMissionIndex + 1);
 
       if (this.intermissionView === 'shop') {
         return `
@@ -671,6 +695,7 @@ export class InterfaceController {
             <span class="overlay-kicker">Between Missions</span>
             <h1>Field Depot</h1>
             <p>Fit the selected unit in the center bay: weapons on the left, chassis in the middle, and combat systems on the right.</p>
+            <p class="upgrade-recommendation"><strong>Next threat ${nextProgression.threatLevel}/15:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
             ${this.renderShop(snapshot)}
             <div class="overlay-actions shop-actions">
               <button type="button" class="action-button" data-close-shop>Back to Debrief</button>
@@ -688,6 +713,7 @@ export class InterfaceController {
             Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
             Available credits: <strong>$${snapshot.credits}</strong>. Enter the depot to buy or upgrade equipment.
           </p>
+          <p class="upgrade-recommendation"><strong>Recommended before ${nextMission?.codename ?? 'deployment'}:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
           ${incomingWeapon ? `
             <p class="weapon-unlock-note">
               New weapon fitted for the next mission: <strong>${incomingWeapon.label}</strong> - ${incomingWeapon.description}
@@ -720,6 +746,9 @@ export class InterfaceController {
             You reached ${mission.codename} with a score of
             <strong>${snapshot.totalScore.toLocaleString()}</strong>. ${this.getFailureAdvice(failureReason)}
           </p>
+          <div class="overlay-actions">
+            <button type="button" class="action-button primary" data-continue-mission="${snapshot.currentMissionIndex}">Retry Current Stage</button>
+          </div>
           <div class="mission-retry-panel" aria-label="Choose a previously played mission">
             <div class="mission-retry-heading">
               <span>Continue Campaign</span>

@@ -5,6 +5,7 @@ import { VirtualGamepad } from '../core/VirtualGamepad';
 import { darkenColor, INFANTRY_PALETTE, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
 import { WEAPONS, type WeaponSpec } from '../data/weapons';
 import { PLAYER_CLASSES } from '../data/playerClasses';
+import { progressionForMission } from '../data/progression';
 import type {
   BossStatus,
   CaptureZoneConfig,
@@ -22,7 +23,7 @@ type Team = 'player' | 'enemy';
 
 interface TankRuntime {
   id: string;
-  kind: EnemyTankKind | 'player';
+  kind: TankArtKind;
   label: string;
   team: Team;
   x: number;
@@ -66,7 +67,7 @@ interface PickupRuntime {
   ttl: number;
 }
 
-type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail' | 'gas';
+type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail' | 'gas' | 'drone';
 
 interface ProjectileRuntime {
   id: number;
@@ -306,7 +307,7 @@ const INFANTRY_CRUSH_SPEED = 90;
 /** Range at which infantry start sidestepping an oncoming tank. */
 const INFANTRY_DODGE_RANGE = 180;
 
-function isInfantry(kind: EnemyTankKind | 'player'): boolean {
+function isInfantry(kind: TankArtKind): boolean {
   return kind === 'rifleman' || kind === 'rocketeer';
 }
 
@@ -671,12 +672,22 @@ export class BattleScene extends Phaser.Scene {
         garrisonReleased: cover.kind !== 'houseSealed',
       };
     });
-    this.enemies = mission.enemies.map((spawn, index) => this.createEnemy(spawn.kind, spawn.id, spawn.x, spawn.y, snapshot.difficulty, spawn.patrol, index));
+    this.enemies = mission.enemies.map((spawn, index) => this.createEnemy(
+      spawn.kind,
+      spawn.id,
+      spawn.x,
+      spawn.y,
+      snapshot.difficulty,
+      snapshot.currentMissionIndex,
+      spawn.patrol,
+      index,
+    ));
 
     if (mission.boss) {
-      const boss = this.createEnemy('boss', mission.boss.id, mission.boss.x, mission.boss.y, snapshot.difficulty);
+      const progression = progressionForMission(snapshot.currentMissionIndex);
+      const boss = this.createEnemy('boss', mission.boss.id, mission.boss.x, mission.boss.y, snapshot.difficulty, snapshot.currentMissionIndex);
       boss.label = mission.boss.name;
-      boss.health = mission.boss.health * DIFFICULTY_HEALTH[snapshot.difficulty];
+      boss.health = mission.boss.health * DIFFICULTY_HEALTH[snapshot.difficulty] * progression.enemyHealthScale;
       boss.maxHealth = boss.health;
       boss.reloadMs = mission.boss.fireRate;
       this.enemies.push(boss);
@@ -742,11 +753,13 @@ export class BattleScene extends Phaser.Scene {
     x: number,
     y: number,
     difficulty: SessionSnapshot['difficulty'],
+    missionIndex = 0,
     patrol?: Array<{ x: number; y: number }>,
     seed = 0,
   ): TankRuntime {
     const template = ENEMY_TEMPLATES[kind];
-    const health = template.health * DIFFICULTY_HEALTH[difficulty];
+    const progression = progressionForMission(missionIndex);
+    const health = template.health * DIFFICULTY_HEALTH[difficulty] * progression.enemyHealthScale;
     return {
       id,
       kind,
@@ -762,12 +775,12 @@ export class BattleScene extends Phaser.Scene {
       health,
       maxHealth: health,
       speed: template.speed,
-      reloadMs: template.reloadMs,
-      reloadTimer: Phaser.Math.Between(300, template.reloadMs),
-      damage: template.damage,
+      reloadMs: template.reloadMs * progression.enemyReloadScale,
+      reloadTimer: Phaser.Math.Between(300, Math.round(template.reloadMs * progression.enemyReloadScale)),
+      damage: template.damage * progression.enemyDamageScale,
       shellSpeed: template.shellSpeed,
       score: template.score,
-      scrap: template.scrap,
+      scrap: Math.round(template.scrap * (1 + missionIndex * 0.025)),
       alive: true,
       exposed: false,
       trackPhase: 0,
@@ -1258,7 +1271,8 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      if (this.handleProjectileCoverHit(projectile)) {
+      // Suicide drones fly above battlefield cover before diving into a target.
+      if (projectile.kind !== 'drone' && this.handleProjectileCoverHit(projectile)) {
         projectile.ttl = -1;
         continue;
       }
@@ -1518,7 +1532,16 @@ export class BattleScene extends Phaser.Scene {
       const distance = Math.max(cover.width, cover.height) * 0.58 + 26;
       const x = clamp(cover.x + Math.cos(angle) * distance, 35, mission.worldWidth - 35);
       const y = clamp(cover.y + Math.sin(angle) * distance, 35, mission.worldHeight - 35);
-      const enemy = this.createEnemy(kind, `${cover.id}-garrison-${index + 1}`, x, y, difficulty, undefined, this.enemies.length + index);
+      const enemy = this.createEnemy(
+        kind,
+        `${cover.id}-garrison-${index + 1}`,
+        x,
+        y,
+        difficulty,
+        this.snapshot?.currentMissionIndex ?? 0,
+        undefined,
+        this.enemies.length + index,
+      );
       enemy.alerted = true;
       enemy.reloadTimer = 650 + index * 180;
       this.enemies.push(enemy);
@@ -1853,7 +1876,11 @@ export class BattleScene extends Phaser.Scene {
     const aliveBonus = Math.round(Math.max(0, this.player.health) * 0.8);
     const clearBonus = 420 + this.snapshot.currentMissionIndex * 160;
     const score = clearBonus + aliveBonus;
-    const scrap = 35 + this.snapshot.currentMissionIndex * 12 + Math.round(this.enemies.filter((enemy) => !enemy.alive).reduce((sum, enemy) => sum + enemy.scrap, 0) * 0.45);
+    // Every clear should fund at least one meaningful depot decision. Later
+    // stages pay more because their recommended upgrades and chassis cost more.
+    const scrap = 125
+      + this.snapshot.currentMissionIndex * 38
+      + Math.round(this.enemies.filter((enemy) => !enemy.alive).reduce((sum, enemy) => sum + enemy.scrap, 0) * 0.65);
     this.addFloatingText(this.player.x, this.player.y - 70, 'Mission Clear', 0xa2db7c);
     this.audio?.setEngineLoad(0);
     this.audio?.playSfx('mission-clear', 0.9);
@@ -2844,6 +2871,8 @@ export class BattleScene extends Phaser.Scene {
       }
       if (projectile.kind === 'gas') {
         this.drawMortarShell(graphics, projectile);
+      } else if (projectile.kind === 'drone') {
+        this.drawSuicideDrone(graphics, projectile);
       } else if (projectile.sourceKind === 'rifleman') {
         this.drawBullet(graphics, projectile);
       } else if (projectile.kind === 'mortar') {
@@ -3007,6 +3036,40 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillCircle(flameTip.x, flameTip.y, 4);
   }
 
+  private drawSuicideDrone(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    const body = [
+      { x: 13, y: 0 },
+      { x: 3, y: -6 },
+      { x: -10, y: -5 },
+      { x: -13, y: 0 },
+      { x: -10, y: 5 },
+      { x: 3, y: 6 },
+    ];
+    this.drawPolygon(graphics, projectile.x, projectile.y, body, angle, 1, 0x4f5b4e, 1, 0x11150f, 0.9, 1.5);
+
+    // Cross arms and four spinning rotors keep the projectile readable as a
+    // drone rather than another missile, even on a small phone display.
+    for (const sideX of [-1, 1]) {
+      for (const sideY of [-1, 1]) {
+        const hub = localToWorld(projectile.x, projectile.y, angle, sideX * 3, sideY * 12);
+        const bodyHub = localToWorld(projectile.x, projectile.y, angle, sideX * 2, sideY * 4);
+        graphics.lineStyle(2, 0xaab69f, 0.9);
+        graphics.lineBetween(bodyHub.x, bodyHub.y, hub.x, hub.y);
+        graphics.lineStyle(1.5, projectile.color, 0.72);
+        graphics.strokeEllipse(hub.x, hub.y, 14, 5);
+        graphics.fillStyle(0x1b211b, 1);
+        graphics.fillCircle(hub.x, hub.y, 2.5);
+      }
+    }
+
+    const warhead = localToWorld(projectile.x, projectile.y, angle, 7, 0);
+    graphics.fillStyle(projectile.color, 0.95);
+    graphics.fillCircle(warhead.x, warhead.y, 4);
+    graphics.lineStyle(2, projectile.color, 0.22);
+    graphics.strokeCircle(projectile.x, projectile.y, 19 + Math.sin(this.missionElapsed / 70) * 2);
+  }
+
   private drawTanks(graphics: Phaser.GameObjects.Graphics): void {
     if (this.player) {
       this.drawTank(graphics, this.player, 0x6fd1a8);
@@ -3017,7 +3080,7 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      this.drawTank(graphics, enemy, enemy.kind === 'player' ? 0x6fd1a8 : enemyColor(enemy.kind));
+      this.drawTank(graphics, enemy, enemyColor(enemy.kind as EnemyTankKind));
     }
   }
 
@@ -3069,7 +3132,8 @@ export class BattleScene extends Phaser.Scene {
       this.drawSensorMast(graphics, tank);
     }
 
-    this.drawBarrel(graphics, tank, art);
+    const equippedWeapon = tank.team === 'player' ? this.getSelectedWeapon() : undefined;
+    this.drawBarrel(graphics, tank, art, equippedWeapon);
 
     graphics.fillStyle(0x070908, 0.75);
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2, 5);
@@ -3254,21 +3318,63 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillCircle(tip.x, tip.y, r * 0.09);
   }
 
-  private drawBarrel(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt): void {
+  private drawBarrel(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, weapon?: WeaponSpec): void {
     const r = tank.radius;
     const innerStart = r * 0.28;
-    const length = art.barrelLength * r;
+    const rapidFire = weapon?.id === 'machineGun' || weapon?.id === 'autocannon';
+    const launcher = weapon?.id === 'rocket' || weapon?.id === 'launcher' || weapon?.id === 'homing';
+    const droneRack = weapon?.id === 'drone';
+    const indirect = weapon?.id === 'mortar' || weapon?.id === 'gasBomb';
+    const longGun = weapon?.id === 'railgun' || weapon?.id === 'laser' || weapon?.id === 'sniper';
+    const length = art.barrelLength * r * (rapidFire ? 0.82 : indirect ? 0.58 : longGun ? 1.28 : 1);
+
+    if (rapidFire) {
+      for (const side of [-1, 1]) {
+        const start = localToWorld(tank.x, tank.y, tank.turretAngle, innerStart, side * r * 0.13);
+        const tip = localToWorld(tank.x, tank.y, tank.turretAngle, length, side * r * 0.13);
+        graphics.lineStyle(5, 0x0d0f0d, 1);
+        graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+        graphics.lineStyle(2.5, 0x626b61, 1);
+        graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+        graphics.fillStyle(0x111411, 1);
+        graphics.fillCircle(tip.x, tip.y, 3.2);
+      }
+      return;
+    }
+
+    if (droneRack) {
+      for (const side of [-1, 1]) {
+        const rack = localToWorld(tank.x, tank.y, tank.turretAngle, r * 0.12, side * r * 0.48);
+        this.drawRotatedRect(graphics, rack.x, rack.y, r * 0.92, r * 0.24, tank.turretAngle, 0x596351, 1);
+        const nose = localToWorld(rack.x, rack.y, tank.turretAngle, r * 0.42, 0);
+        graphics.fillStyle(0xffd766, 0.95);
+        graphics.fillCircle(nose.x, nose.y, Math.max(2.5, r * 0.08));
+      }
+      return;
+    }
+
     const start = localToWorld(tank.x, tank.y, tank.turretAngle, innerStart, 0);
     const tip = localToWorld(tank.x, tank.y, tank.turretAngle, length, 0);
 
-    graphics.lineStyle(art.barrelWidth + 3, 0x0d0f0d, 1);
+    if (launcher) {
+      graphics.lineStyle(art.barrelWidth + 8, 0x11150f, 1);
+      graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+      graphics.lineStyle(art.barrelWidth + 4, 0x596751, 1);
+      graphics.lineBetween(start.x, start.y, tip.x, tip.y);
+      graphics.fillStyle(0x171b16, 1);
+      graphics.fillCircle(tip.x, tip.y, (art.barrelWidth + 4) * 0.7);
+      return;
+    }
+
+    const barrelWidth = indirect ? art.barrelWidth + 5 : longGun ? Math.max(3, art.barrelWidth - 1) : art.barrelWidth;
+    graphics.lineStyle(barrelWidth + 3, 0x0d0f0d, 1);
     graphics.lineBetween(start.x, start.y, tip.x, tip.y);
-    graphics.lineStyle(art.barrelWidth, tank.exposed ? 0xfff0a0 : 0x2a2f2a, 1);
+    graphics.lineStyle(barrelWidth, tank.exposed ? 0xfff0a0 : longGun ? 0x62607a : 0x2a2f2a, 1);
     graphics.lineBetween(start.x, start.y, tip.x, tip.y);
 
     const muzzle = localToWorld(tank.x, tank.y, tank.turretAngle, length - r * 0.12, 0);
     graphics.fillStyle(0x141614, 1);
-    graphics.fillCircle(muzzle.x, muzzle.y, art.barrelWidth * 0.62);
+    graphics.fillCircle(muzzle.x, muzzle.y, barrelWidth * 0.62);
   }
 
   private drawPolygon(

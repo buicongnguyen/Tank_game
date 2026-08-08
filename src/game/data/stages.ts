@@ -539,7 +539,7 @@ export const STAGES: MissionConfig[] = [
     briefing: 'Mortar fitted. Enemy armor stacks behind the concrete walls - lob shells over the top instead of trading shots head on.',
     worldWidth: 2400,
     worldHeight: 1000,
-    durationMs: 120000,
+    durationMs: 45000,
     palette: {
       sky: 0x181109,
       ground: 0x6b5136,

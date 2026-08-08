@@ -7,7 +7,14 @@ import {
   weaponsUnlockedAt,
   weaponUnlockedAtMission,
 } from '../data/weapons';
-import { CHASSIS_PRICE, cloneClassStats, nextChassis, PLAYER_CLASSES } from '../data/playerClasses';
+import {
+  CHASSIS_PRICE,
+  CHASSIS_UNLOCK_MISSION,
+  cloneClassStats,
+  nextChassis,
+  PLAYER_CLASSES,
+  TEST_MODE,
+} from '../data/playerClasses';
 import { SHOP_STATS, statPrice } from '../data/shop';
 import type {
   DifficultyMode, MissionConfig, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId,
@@ -16,7 +23,7 @@ import type {
 
 type Listener = (snapshot: SessionSnapshot) => void;
 
-
+const DEFAULT_PLAYER_CLASS: PlayerClassId = TEST_MODE ? 'medium' : 'rifleman';
 
 const UPGRADE_LIBRARY: Record<UpgradeId, UpgradeOption> = {
   armor: {
@@ -97,10 +104,10 @@ export class GameDirector {
   private runSerial = 0;
   private completedMissions = 0;
   private failureReason: string | undefined;
-  private playerClass: PlayerClassId = 'medium';
-  private tankStats = cloneClassStats('medium');
+  private playerClass: PlayerClassId = DEFAULT_PLAYER_CLASS;
+  private tankStats = cloneClassStats(DEFAULT_PLAYER_CLASS);
   private pendingUpgrades: UpgradeOption[] = this.getUpgradeOptions(0);
-  private selectedWeapon: WeaponId = 'rocket';
+  private selectedWeapon: WeaponId = PLAYER_CLASSES[DEFAULT_PLAYER_CLASS].startingWeapon;
   private credits = 0;
   private statLevels: Partial<Record<ShopItemId, number>> = {};
   private boughtWeapons: WeaponId[] = [];
@@ -155,17 +162,22 @@ export class GameDirector {
     const upgrade = nextChassis(this.playerClass);
     if (upgrade) {
       const price = CHASSIS_PRICE[upgrade];
+      const unlockMissionIndex = CHASSIS_UNLOCK_MISSION[upgrade];
+      const chassisUnlocked = this.completedMissions > unlockMissionIndex;
       entries.push({
         id: 'chassis',
         kind: 'chassis',
         label: `Upgrade to ${PLAYER_CLASSES[upgrade].label}`,
-        description: PLAYER_CLASSES[upgrade].description,
+        description: chassisUnlocked
+          ? PLAYER_CLASSES[upgrade].description
+          : `Available after Mission ${unlockMissionIndex + 1}. ${PLAYER_CLASSES[upgrade].description}`,
         price,
         level: PLAYER_CLASSES[this.playerClass].tier,
         maxLevel: PLAYER_CLASSES.heavy.tier,
         owned: false,
         maxed: false,
-        affordable: this.credits >= price,
+        affordable: chassisUnlocked && this.credits >= price,
+        lockedReason: chassisUnlocked ? undefined : `Complete Mission ${unlockMissionIndex + 1}`,
       });
     }
 
@@ -280,6 +292,11 @@ export class GameDirector {
    * every upgrade already bought so purchases are never lost in the swap.
    */
   private switchChassis(next: PlayerClassId): void {
+    const previousStartingWeapon = PLAYER_CLASSES[this.playerClass].startingWeapon;
+    if (!this.boughtWeapons.includes(previousStartingWeapon)) {
+      this.boughtWeapons.push(previousStartingWeapon);
+    }
+
     this.playerClass = next;
     this.tankStats = applyDifficulty(cloneClassStats(next), this.difficulty);
     for (const [id, level] of Object.entries(this.statLevels)) {
