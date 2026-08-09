@@ -592,3 +592,42 @@ All phases above, including the default-on performance-mode control, were implem
 - Confirm Web Audio cues remain complete on Safari/iOS after their source graphs disconnect on `ended`.
 - Confirm the default-on performance mode matches player expectations; audio and shake can be restored together from the menu or pause screen.
 - Consider Phaser texture atlases for tank/cover art only if physical-device profiling still shows rendering as the dominant cost after this pass.
+
+---
+
+## Request 16: Health-bar jitter and projectile-load follow-up
+
+### Evaluation
+
+The follow-up comparison separated idle play, sustained Mini Tank machine-gun fire, and the same fire with audio/camera shake restored. The desktop/coarse-pointer browser did not reproduce a suspension-sized frame: every sample reported zero frames above the existing 34 ms long-frame threshold. Audio and shake therefore were not the primary cause in this environment.
+
+The review did confirm two sources that become much more expensive on mobile:
+
+- Health, shield, boss, and cooldown fills animated CSS `width`. The HUD refreshes every 100 ms while the old transition lasted 120 ms, so a regenerating shield or cooldown could continuously restart layout and paint work and look as if the bar were shaking.
+- Every rendered tank and shaped projectile mapped its silhouette into a new array of `Phaser.Math.Vector2` objects every frame. Additional temporary arrays and world-point objects were created for shells, rockets, drones, exposed turrets, armor blocks, trails, and hit effects. Automatic fire amplified this garbage-collection pressure.
+- Performance mode suppressed sound and camera shake but previously drew the same maximum number of visual effects as full-effects mode.
+
+### Implemented fix
+
+1. Health, shield, boss, and cooldown fills now keep a stable full-size box and animate `transform: scaleX(...)` from the left edge. The bar transition is 90 ms, shorter than the 100 ms HUD cadence, so transitions no longer overlap. DOM writes remain change-guarded.
+2. Polygon rendering now reuses one expandable point buffer. Phaser copies the point coordinates into its numeric Graphics command buffer synchronously, so the same scratch objects can safely serve the next shape.
+3. Projectile silhouettes and the unit box are immutable module constants. Shells use separate horizontal and vertical scales, eliminating their per-frame shape arrays. Exposed-turret and armor-block rendering also reuse the source art/constants.
+4. Local-to-world render calculations use a 32-point ring scratch pool. Render callers consume coordinates synchronously and retain at most a few points at once, removing the repeated `{x, y}` allocation without changing geometry.
+5. Default-on performance mode now also:
+   - caps muzzle flashes at 24, impacts at 36, and explosions at 28;
+   - creates two impact sparks and two/four explosion sparks;
+   - uses one projectile trail pass;
+   - omits secondary muzzle rays, shield bloom, explosion smoke, secondary rings, hot cores, and additive bloom.
+6. Full-effects mode keeps the original visual counts and layered effects. The toggle description now states that combat particles are reduced in addition to audio and camera shake being disabled.
+
+### Verification
+
+- `npm run build` passed TypeScript and Vite production compilation.
+- In the live DOM, health reported `--scale: 1` and the weapon cooldown reported `--fill-scale: 1`; neither uses inline width mutation.
+- A 64-input sustained Machine Gun run in performance mode reported 53 FPS, a 23 ms maximum sampled frame interval, zero long frames, and seven active projectiles at the sample point.
+- A separate full-effects regression run reported 50 FPS, a 30 ms maximum interval, zero long frames, and eight active projectiles.
+- The start menu, battlefield, tanks, structures, mobile controls, HUD, performance toggle, pause, resume, weapon fire, and both effect profiles rendered and remained interactive in the in-app browser.
+
+### Remaining device check
+
+The browser result confirms the hot paths are bounded and functionally correct, but it is not a substitute for a physical low/mid-range Android trace. Claude should profile sustained Machine Gun fire plus clustered explosions on a real device and compare `data-game-frame-max` / `data-game-long-frames` with performance mode on and off. If long frames persist, the next high-value step is replacing frequently rebuilt Phaser Graphics actor art with cached textures; the HUD should not be rebuilt or slowed further unless device evidence specifically points back to DOM work.

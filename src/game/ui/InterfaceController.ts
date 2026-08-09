@@ -186,9 +186,9 @@ export class InterfaceController {
       }
     }
 
-    this.setHudWidth('health-fill', healthPercent);
+    this.setHudScale('health-fill', healthPercent / 100);
     this.setHudText('health-text', `${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth}`);
-    this.setHudWidth('shield-fill', tank.shieldMax > 0 ? Math.max(0, (tank.shield / tank.shieldMax) * 100) : 0);
+    this.setHudScale('shield-fill', tank.shieldMax > 0 ? tank.shield / tank.shieldMax : 0);
     this.setHudText('shield-text', `SHD ${Math.max(0, Math.ceil(tank.shield))}`);
     this.setHudText('armor', `ARM ${tank.armor.toFixed(2)}x`);
     this.setHudText('speed', `SPD ${Math.round(tank.speed)}`);
@@ -205,7 +205,7 @@ export class InterfaceController {
     this.setHudFill('special', tank.specialPercent);
 
     if (hud.boss) {
-      this.setHudWidth('boss-fill', Math.max(0, (hud.boss.health / hud.boss.maxHealth) * 100));
+      this.setHudScale('boss-fill', hud.boss.health / hud.boss.maxHealth);
       this.setHudText('boss-text', `${hud.boss.name}${hud.boss.exposed ? ' - Weak Point' : ''}`);
       this.hudFields.get('boss')?.classList.toggle('is-exposed', hud.boss.exposed);
     }
@@ -218,15 +218,15 @@ export class InterfaceController {
     }
   }
 
-  private setHudWidth(key: string, percent: number): void {
+  private setHudScale(key: string, value: number): void {
     const element = this.hudFields.get(key);
     if (!element) {
       return;
     }
 
-    const width = `${Math.round(Math.min(100, Math.max(0, percent)))}%`;
-    if (element.style.width !== width) {
-      element.style.width = width;
+    const scale = (Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000).toString();
+    if (element.style.getPropertyValue('--scale') !== scale) {
+      element.style.setProperty('--scale', scale);
     }
   }
 
@@ -236,9 +236,9 @@ export class InterfaceController {
       return;
     }
 
-    const fill = `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
-    if (element.style.getPropertyValue('--fill') !== fill) {
-      element.style.setProperty('--fill', fill);
+    const fill = (Math.round(Math.min(1, Math.max(0, value)) * 100) / 100).toString();
+    if (element.style.getPropertyValue('--fill-scale') !== fill) {
+      element.style.setProperty('--fill-scale', fill);
     }
   }
 
@@ -625,7 +625,7 @@ export class InterfaceController {
         <input type="checkbox" data-performance-mode ${enabled ? 'checked' : ''}>
         <span>
           <strong>Performance mode ${enabled ? 'on' : 'off'}</strong>
-          <small>On by default. Disables audio and camera shake to reduce frame stalls.</small>
+          <small>On by default. Reduces combat particles and disables audio and camera shake.</small>
         </span>
       </label>
     `;

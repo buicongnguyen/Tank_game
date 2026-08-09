@@ -808,9 +808,12 @@ a {
 
 .hud-bar-fill {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 0;
   background: linear-gradient(90deg, #a2db7c, #d8f0a8);
-  transition: width 120ms linear;
+  transform: scaleX(var(--scale, 1));
+  transform-origin: left center;
+  transition: transform 90ms linear;
+  will-change: transform;
 }
 
 .hud-bar-text {
@@ -1749,9 +1752,10 @@ a {
 .cooldown-strip span::before {
   content: '';
   position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--fill, 100%);
+  inset: 0;
   background: linear-gradient(90deg, rgba(162, 219, 124, 0.32), rgba(239, 182, 72, 0.25));
+  transform: scaleX(var(--fill-scale, 1));
+  transform-origin: left center;
   z-index: -1;
 }
 

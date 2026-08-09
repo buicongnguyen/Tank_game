@@ -183,6 +183,11 @@ interface FloatingText {
   label: Phaser.GameObjects.Text;
 }
 
+interface RenderPoint {
+  x: number;
+  y: number;
+}
+
 interface EnemyTemplate {
   label: string;
   health: number;
@@ -342,6 +347,38 @@ const MAX_EXPLOSIONS = 64;
 const MAX_FLOATING_TEXTS = 40;
 const PLAYER_HIT_SHAKE_COOLDOWN_MS = 90;
 const WORLD_SHAKE_COOLDOWN_MS = 45;
+const REDUCED_MAX_MUZZLE_FLASHES = 24;
+const REDUCED_MAX_IMPACT_EFFECTS = 36;
+const REDUCED_MAX_EXPLOSIONS = 28;
+
+// Rendering runs every frame, so immutable projectile silhouettes and scratch
+// points avoid creating hundreds of short-lived arrays and vector objects while
+// automatic weapons are active.
+const MORTAR_SHELL_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 13, y: 0 }, { x: 5, y: -8 }, { x: -11, y: -8 }, { x: -11, y: 8 }, { x: 5, y: 8 },
+];
+const RAIL_SLUG_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 20, y: 0 }, { x: 8, y: -5 }, { x: -14, y: -4 }, { x: -14, y: 4 }, { x: 8, y: 5 },
+];
+const SHELL_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 0.55, y: 0 }, { x: 0.1, y: -0.5 }, { x: -0.45, y: -0.5 },
+  { x: -0.45, y: 0.5 }, { x: 0.1, y: 0.5 },
+];
+const BOSS_SHELL_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 18, y: 0 }, { x: 4, y: -9 }, { x: -16, y: -9 }, { x: -16, y: 9 }, { x: 4, y: 9 },
+];
+const ROCKET_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 16, y: 0 }, { x: 4, y: -6 }, { x: -10, y: -6 }, { x: -10, y: 6 }, { x: 4, y: 6 },
+];
+const DRONE_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: 13, y: 0 }, { x: 3, y: -6 }, { x: -10, y: -5 },
+  { x: -13, y: 0 }, { x: -10, y: 5 }, { x: 3, y: 6 },
+];
+const UNIT_BOX_POINTS: ReadonlyArray<RenderPoint> = [
+  { x: -1, y: -1 }, { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 },
+];
+const WORLD_POINT_POOL: RenderPoint[] = Array.from({ length: 32 }, () => ({ x: 0, y: 0 }));
+let worldPointPoolIndex = 0;
 
 /** Hull speed a tank needs before it can run infantry down. */
 const INFANTRY_CRUSH_SPEED = 90;
@@ -364,10 +401,14 @@ function angleDifference(a: number, b: number): number {
   return Phaser.Math.Angle.Wrap(b - a);
 }
 
-function localToWorld(x: number, y: number, angle: number, lx: number, ly: number): { x: number; y: number } {
+function localToWorld(x: number, y: number, angle: number, lx: number, ly: number): RenderPoint {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
-  return { x: x + lx * cos - ly * sin, y: y + lx * sin + ly * cos };
+  const point = WORLD_POINT_POOL[worldPointPoolIndex];
+  worldPointPoolIndex = (worldPointPoolIndex + 1) % WORLD_POINT_POOL.length;
+  point.x = x + lx * cos - ly * sin;
+  point.y = y + lx * sin + ly * cos;
+  return point;
 }
 
 function approachAngle(current: number, target: number, amount: number): number {
@@ -578,6 +619,7 @@ export class BattleScene extends Phaser.Scene {
   private staticLayerDirty = true;
   private readonly projectileHitBuffer: ProjectileHitCandidate[] = [];
   private readonly collisionTanks: TankRuntime[] = [];
+  private readonly polygonPointBuffer: RenderPoint[] = [];
   private performanceElapsed = 0;
   private performanceFrames = 0;
   private performanceLongFrames = 0;
@@ -2437,8 +2479,9 @@ export class BattleScene extends Phaser.Scene {
       color,
       feedback,
     });
-    if (this.muzzleFlashes.length > MAX_MUZZLE_FLASHES) {
-      this.muzzleFlashes.splice(0, this.muzzleFlashes.length - MAX_MUZZLE_FLASHES);
+    const muzzleFlashLimit = this.effectsEnabled() ? MAX_MUZZLE_FLASHES : REDUCED_MAX_MUZZLE_FLASHES;
+    if (this.muzzleFlashes.length > muzzleFlashLimit) {
+      this.muzzleFlashes.splice(0, this.muzzleFlashes.length - muzzleFlashLimit);
     }
   }
 
@@ -2451,7 +2494,7 @@ export class BattleScene extends Phaser.Scene {
   ): void {
     const profile = COMBAT_FEEDBACK[projectile.feedback];
     const angle = Math.atan2(projectile.vy, projectile.vx);
-    const sparkCount = profile.impactSize >= 18 ? 7 : 4;
+    const sparkCount = this.effectsEnabled() ? (profile.impactSize >= 18 ? 7 : 4) : 2;
     const sparkAngles = Array.from({ length: sparkCount }, (_, index) => (
       angle + Math.PI + (index / Math.max(1, sparkCount - 1) - 0.5) * 1.7 + (Math.random() - 0.5) * 0.32
     ));
@@ -2467,8 +2510,9 @@ export class BattleScene extends Phaser.Scene {
       shield,
       sparkAngles,
     });
-    if (this.impacts.length > MAX_IMPACT_EFFECTS) {
-      this.impacts.splice(0, this.impacts.length - MAX_IMPACT_EFFECTS);
+    const impactLimit = this.effectsEnabled() ? MAX_IMPACT_EFFECTS : REDUCED_MAX_IMPACT_EFFECTS;
+    if (this.impacts.length > impactLimit) {
+      this.impacts.splice(0, this.impacts.length - impactLimit);
     }
     if (playSound) {
       this.playSpatialSfx(shield ? 'shield' : 'impact', x, y, shield ? 0.78 : 0.58);
@@ -2482,7 +2526,7 @@ export class BattleScene extends Phaser.Scene {
 
     const big = radius >= 100;
     const duration = clamp(240 + radius * (big ? 2.1 : 1.15), 260, 900);
-    const sparkCount = big ? 10 : 6;
+    const sparkCount = this.effectsEnabled() ? (big ? 10 : 6) : (big ? 4 : 2);
     const sparks: ExplosionSpark[] = Array.from({ length: sparkCount }, (_, index) => ({
       angle: (index / sparkCount) * Math.PI * 2 + Math.random() * 0.6,
       length: radius * (0.7 + Math.random() * 0.6),
@@ -2498,8 +2542,9 @@ export class BattleScene extends Phaser.Scene {
       color,
       sparks,
     });
-    if (this.explosions.length > MAX_EXPLOSIONS) {
-      this.explosions.splice(0, this.explosions.length - MAX_EXPLOSIONS);
+    const explosionLimit = this.effectsEnabled() ? MAX_EXPLOSIONS : REDUCED_MAX_EXPLOSIONS;
+    if (this.explosions.length > explosionLimit) {
+      this.explosions.splice(0, this.explosions.length - explosionLimit);
     }
     this.playSpatialSfx(radius >= 100 ? 'explosion' : 'impact', x, y, radius >= 100 ? 1 : 0.72);
     if (this.effectsEnabled() && this.cameras.main && this.worldShakeCooldownMs <= 0) {
@@ -2520,8 +2565,9 @@ export class BattleScene extends Phaser.Scene {
       color: 0x8cff6a,
       sparks: [],
     });
-    if (this.explosions.length > MAX_EXPLOSIONS) {
-      this.explosions.splice(0, this.explosions.length - MAX_EXPLOSIONS);
+    const explosionLimit = this.effectsEnabled() ? MAX_EXPLOSIONS : REDUCED_MAX_EXPLOSIONS;
+    if (this.explosions.length > explosionLimit) {
+      this.explosions.splice(0, this.explosions.length - explosionLimit);
     }
     this.playSpatialSfx('explosion', x, y, 0.6);
 
@@ -3263,6 +3309,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawMuzzleFlashes(graphics: Phaser.GameObjects.Graphics): void {
+    const fullEffects = this.effectsEnabled();
     for (const flash of this.muzzleFlashes) {
       if (!this.isVisible(flash.x, flash.y, flash.size * 3)) {
         continue;
@@ -3272,16 +3319,21 @@ export class BattleScene extends Phaser.Scene {
       const alpha = 1 - progress;
       const size = flash.size * (1 + progress * 0.28);
       const forward = localToWorld(flash.x, flash.y, flash.angle, size * 1.35, 0);
+
+      graphics.lineStyle(Math.max(2, size * (fullEffects ? 0.38 : 0.24)), flash.color, 0.82 * alpha);
+      graphics.lineBetween(flash.x, flash.y, forward.x, forward.y);
+      graphics.fillStyle(0xffffff, 0.88 * alpha);
+      graphics.fillCircle(flash.x, flash.y, Math.max(2, size * 0.3));
+
+      if (!fullEffects) {
+        continue;
+      }
+
       const upper = localToWorld(flash.x, flash.y, flash.angle, size * 0.72, -size * 0.52);
       const lower = localToWorld(flash.x, flash.y, flash.angle, size * 0.72, size * 0.52);
-
-      graphics.lineStyle(Math.max(2, size * 0.38), flash.color, 0.82 * alpha);
-      graphics.lineBetween(flash.x, flash.y, forward.x, forward.y);
       graphics.lineStyle(Math.max(1.5, size * 0.18), 0xfff2c9, 0.95 * alpha);
       graphics.lineBetween(flash.x, flash.y, upper.x, upper.y);
       graphics.lineBetween(flash.x, flash.y, lower.x, lower.y);
-      graphics.fillStyle(0xffffff, 0.88 * alpha);
-      graphics.fillCircle(flash.x, flash.y, Math.max(2, size * 0.3));
 
       if (flash.feedback === 'rocket' || flash.feedback === 'drone') {
         const exhaust = localToWorld(flash.x, flash.y, flash.angle, -size * 1.15, 0);
@@ -3304,6 +3356,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawImpactEffects(graphics: Phaser.GameObjects.Graphics): void {
+    const fullEffects = this.effectsEnabled();
     for (const impact of this.impacts) {
       if (!this.isVisible(impact.x, impact.y, impact.size * 3)) {
         continue;
@@ -3318,10 +3371,12 @@ export class BattleScene extends Phaser.Scene {
         graphics.fillCircle(impact.x, impact.y, impact.size * expansion);
         graphics.lineStyle(3, impact.color, 0.85 * alpha);
         graphics.strokeCircle(impact.x, impact.y, impact.size * expansion);
-        graphics.lineStyle(1.5, 0xffffff, 0.6 * alpha);
-        graphics.strokeCircle(impact.x, impact.y, impact.size * (0.42 + progress * 1.25));
-        this.glow?.fillStyle(impact.color, 0.24 * alpha);
-        this.glow?.fillCircle(impact.x, impact.y, impact.size * expansion);
+        if (fullEffects) {
+          graphics.lineStyle(1.5, 0xffffff, 0.6 * alpha);
+          graphics.strokeCircle(impact.x, impact.y, impact.size * (0.42 + progress * 1.25));
+          this.glow?.fillStyle(impact.color, 0.24 * alpha);
+          this.glow?.fillCircle(impact.x, impact.y, impact.size * expansion);
+        }
         continue;
       }
 
@@ -3379,8 +3434,10 @@ export class BattleScene extends Phaser.Scene {
   private drawBullet(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
     const angle = Math.atan2(projectile.vy, projectile.vx);
     const tail = localToWorld(projectile.x, projectile.y, angle, -26, 0);
-    graphics.lineStyle(3, projectile.color, 0.28);
-    graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+    if (this.effectsEnabled()) {
+      graphics.lineStyle(3, projectile.color, 0.28);
+      graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+    }
     graphics.lineStyle(1.5, projectile.color, 0.9);
     graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
     graphics.fillStyle(0xfffdf0, 0.95);
@@ -3402,14 +3459,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.drawTrail(graphics, projectile, angle, 40, 7);
 
-    const points = [
-      { x: 13, y: 0 },
-      { x: 5, y: -8 },
-      { x: -11, y: -8 },
-      { x: -11, y: 8 },
-      { x: 5, y: 8 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x4a3410, 0.7, 1.5);
+    this.drawPolygon(graphics, projectile.x, projectile.y, MORTAR_SHELL_POINTS, angle, 1, projectile.color, 1, 0x4a3410, 0.7, 1.5);
 
     for (const side of [-1, 1]) {
       const finBase = localToWorld(projectile.x, projectile.y, angle, -11, side * 4);
@@ -3431,14 +3481,7 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillStyle(projectile.color, 0.22);
     graphics.fillCircle(projectile.x, projectile.y, 14);
 
-    const points = [
-      { x: 20, y: 0 },
-      { x: 8, y: -5 },
-      { x: -14, y: -4 },
-      { x: -14, y: 4 },
-      { x: 8, y: 5 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0xffffff, 0.8, 1.5);
+    this.drawPolygon(graphics, projectile.x, projectile.y, RAIL_SLUG_POINTS, angle, 1, projectile.color, 1, 0xffffff, 0.8, 1.5);
 
     const nose = localToWorld(projectile.x, projectile.y, angle, 12, 0);
     graphics.fillStyle(0xffffff, 0.95);
@@ -3447,11 +3490,16 @@ export class BattleScene extends Phaser.Scene {
 
   private drawTrail(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime, angle: number, length: number, width: number, color = projectile.color): void {
     const tail = localToWorld(projectile.x, projectile.y, angle, -length, 0);
-    graphics.lineStyle(width, color, 0.18);
+    if (this.effectsEnabled()) {
+      graphics.lineStyle(width, color, 0.18);
+      graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
+      const midTail = localToWorld(projectile.x, projectile.y, angle, -length * 0.32, 0);
+      graphics.lineStyle(width * 0.5, color, 0.78);
+      graphics.lineBetween(midTail.x, midTail.y, projectile.x, projectile.y);
+      return;
+    }
+    graphics.lineStyle(Math.max(1.5, width * 0.42), color, 0.72);
     graphics.lineBetween(tail.x, tail.y, projectile.x, projectile.y);
-    const midTail = localToWorld(projectile.x, projectile.y, angle, -length * 0.32, 0);
-    graphics.lineStyle(width * 0.5, color, 0.78);
-    graphics.lineBetween(midTail.x, midTail.y, projectile.x, projectile.y);
   }
 
   private drawShell(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
@@ -3462,14 +3510,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.drawTrail(graphics, projectile, angle, isPlayer ? 74 : 48, isPlayer ? 10 : 6);
 
-    const points = [
-      { x: length * 0.55, y: 0 },
-      { x: length * 0.1, y: -width * 0.5 },
-      { x: -length * 0.45, y: -width * 0.5 },
-      { x: -length * 0.45, y: width * 0.5 },
-      { x: length * 0.1, y: width * 0.5 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x140f08, 0.65, 1.5);
+    this.drawPolygon(graphics, projectile.x, projectile.y, SHELL_POINTS, angle, length, projectile.color, 1, 0x140f08, 0.65, 1.5, width);
 
     const nose = localToWorld(projectile.x, projectile.y, angle, length * 0.3, 0);
     graphics.fillStyle(0xffffff, 0.85);
@@ -3485,14 +3526,7 @@ export class BattleScene extends Phaser.Scene {
     graphics.lineStyle(2, projectile.color, 0.7);
     graphics.strokeCircle(projectile.x, projectile.y, projectile.radius + 6);
 
-    const points = [
-      { x: 18, y: 0 },
-      { x: 4, y: -9 },
-      { x: -16, y: -9 },
-      { x: -16, y: 9 },
-      { x: 4, y: 9 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x140f08, 0.7, 2);
+    this.drawPolygon(graphics, projectile.x, projectile.y, BOSS_SHELL_POINTS, angle, 1, projectile.color, 1, 0x140f08, 0.7, 2);
     graphics.fillStyle(0xffffff, 0.9);
     graphics.fillCircle(projectile.x, projectile.y, Math.max(3, projectile.radius * 0.4));
   }
@@ -3501,14 +3535,7 @@ export class BattleScene extends Phaser.Scene {
     const angle = Math.atan2(projectile.vy, projectile.vx);
     this.drawTrail(graphics, projectile, angle, 60, 8, 0xffb15f);
 
-    const points = [
-      { x: 16, y: 0 },
-      { x: 4, y: -6 },
-      { x: -10, y: -6 },
-      { x: -10, y: 6 },
-      { x: 4, y: 6 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, points, angle, 1, projectile.color, 1, 0x0c2a33, 0.7, 1.5);
+    this.drawPolygon(graphics, projectile.x, projectile.y, ROCKET_POINTS, angle, 1, projectile.color, 1, 0x0c2a33, 0.7, 1.5);
 
     const finBack = localToWorld(projectile.x, projectile.y, angle, -10, 0);
     for (const side of [-1, 1]) {
@@ -3524,15 +3551,7 @@ export class BattleScene extends Phaser.Scene {
 
   private drawSuicideDrone(graphics: Phaser.GameObjects.Graphics, projectile: ProjectileRuntime): void {
     const angle = Math.atan2(projectile.vy, projectile.vx);
-    const body = [
-      { x: 13, y: 0 },
-      { x: 3, y: -6 },
-      { x: -10, y: -5 },
-      { x: -13, y: 0 },
-      { x: -10, y: 5 },
-      { x: 3, y: 6 },
-    ];
-    this.drawPolygon(graphics, projectile.x, projectile.y, body, angle, 1, 0x4f5b4e, 1, 0x11150f, 0.9, 1.5);
+    this.drawPolygon(graphics, projectile.x, projectile.y, DRONE_POINTS, angle, 1, 0x4f5b4e, 1, 0x11150f, 0.9, 1.5);
 
     // Cross arms and four spinning rotors keep the projectile readable as a
     // drone rather than another missile, even on a small phone display.
@@ -3609,8 +3628,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (tank.exposed) {
-      const glowPoints = art.turret.map((point) => ({ x: point.x * 1.28, y: point.y * 1.28 }));
-      this.drawPolygon(graphics, tank.x, tank.y, glowPoints, tank.turretAngle, r, 0xfff0a0, 0.32, 0xfff0a0, 0.5, 2);
+      this.drawPolygon(graphics, tank.x, tank.y, art.turret, tank.turretAngle, r * 1.28, 0xfff0a0, 0.32, 0xfff0a0, 0.5, 2);
     }
 
     this.drawPolygon(graphics, tank.x, tank.y, art.turret, tank.turretAngle, r, turretColor, 1, 0x050805, 0.5, 2);
@@ -3776,17 +3794,11 @@ export class BattleScene extends Phaser.Scene {
   private drawArmorBlocks(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, art: TankArt, color: number): void {
     const r = tank.radius;
     const size = r * 0.24;
-    const blockPoints = [
-      { x: -1, y: -1 },
-      { x: 1, y: -1 },
-      { x: 1, y: 1 },
-      { x: -1, y: 1 },
-    ];
     for (const side of [-1, 1]) {
       const oy = (art.runnerOffset - 0.16) * r * side;
       for (const lxFrac of [-0.5, -0.08, 0.36]) {
         const block = localToWorld(tank.x, tank.y, tank.bodyAngle, lxFrac * r, oy);
-        this.drawPolygon(graphics, block.x, block.y, blockPoints, tank.bodyAngle, size * 0.5, color, 0.92, 0x050805, 0.4, 1);
+        this.drawPolygon(graphics, block.x, block.y, UNIT_BOX_POINTS, tank.bodyAngle, size * 0.5, color, 0.92, 0x050805, 0.4, 1);
       }
     }
   }
@@ -3883,7 +3895,7 @@ export class BattleScene extends Phaser.Scene {
     graphics: Phaser.GameObjects.Graphics,
     x: number,
     y: number,
-    points: Array<{ x: number; y: number }>,
+    points: ReadonlyArray<RenderPoint>,
     angle: number,
     scale: number,
     color: number,
@@ -3891,19 +3903,26 @@ export class BattleScene extends Phaser.Scene {
     strokeColor: number,
     strokeAlpha: number,
     lineWidth: number,
+    scaleY = scale,
   ): void {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    const corners = points.map((point) => {
+    while (this.polygonPointBuffer.length < points.length) {
+      this.polygonPointBuffer.push({ x: 0, y: 0 });
+    }
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      const corner = this.polygonPointBuffer[index];
       const px = point.x * scale;
-      const py = point.y * scale;
-      return new Phaser.Math.Vector2(x + px * cos - py * sin, y + px * sin + py * cos);
-    });
+      const py = point.y * scaleY;
+      corner.x = x + px * cos - py * sin;
+      corner.y = y + px * sin + py * cos;
+    }
 
     graphics.fillStyle(color, alpha);
-    graphics.fillPoints(corners, true);
+    graphics.fillPoints(this.polygonPointBuffer, true, false, points.length);
     graphics.lineStyle(lineWidth, strokeColor, strokeAlpha);
-    graphics.strokePoints(corners, true);
+    graphics.strokePoints(this.polygonPointBuffer, true, false, points.length);
   }
 
   private drawRotatedRect(graphics: Phaser.GameObjects.Graphics, x: number, y: number, width: number, height: number, angle: number, color: number, alpha: number): void {
@@ -3913,23 +3932,20 @@ export class BattleScene extends Phaser.Scene {
       graphics,
       x,
       y,
-      [
-        { x: -halfWidth, y: -halfHeight },
-        { x: halfWidth, y: -halfHeight },
-        { x: halfWidth, y: halfHeight },
-        { x: -halfWidth, y: halfHeight },
-      ],
+      UNIT_BOX_POINTS,
       angle,
-      1,
+      halfWidth,
       color,
       alpha,
       0x050805,
       0.42,
       2,
+      halfHeight,
     );
   }
 
   private drawExplosions(graphics: Phaser.GameObjects.Graphics): void {
+    const fullEffects = this.effectsEnabled();
     for (const explosion of this.explosions) {
       if (!this.isVisible(explosion.x, explosion.y, explosion.radius * 1.7)) {
         continue;
@@ -3938,14 +3954,16 @@ export class BattleScene extends Phaser.Scene {
       const progress = clamp(explosion.age / explosion.duration, 0, 1);
       const easeOut = 1 - (1 - progress) * (1 - progress);
 
-      // drifting smoke puff: lags behind the blast and lingers longest
-      const smokeProgress = clamp(progress * 1.15, 0, 1);
-      graphics.fillStyle(0x3a3a38, 0.16 * (1 - smokeProgress));
-      graphics.fillCircle(
-        explosion.x,
-        explosion.y - smokeProgress * explosion.radius * 0.3,
-        explosion.radius * (0.6 + smokeProgress * 0.7),
-      );
+      if (fullEffects) {
+        // drifting smoke puff: lags behind the blast and lingers longest
+        const smokeProgress = clamp(progress * 1.15, 0, 1);
+        graphics.fillStyle(0x3a3a38, 0.16 * (1 - smokeProgress));
+        graphics.fillCircle(
+          explosion.x,
+          explosion.y - smokeProgress * explosion.radius * 0.3,
+          explosion.radius * (0.6 + smokeProgress * 0.7),
+        );
+      }
 
       // main shockwave: fast expanding ring with fading fill
       graphics.fillStyle(explosion.color, 0.3 * (1 - progress));
@@ -3953,26 +3971,28 @@ export class BattleScene extends Phaser.Scene {
       graphics.lineStyle(4, explosion.color, 0.65 * (1 - progress));
       graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * easeOut);
 
-      // secondary ring lagging behind the main shockwave
-      const laggingProgress = clamp(progress * 0.7, 0, 1);
-      graphics.lineStyle(2.5, explosion.color, 0.4 * (1 - progress));
-      graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * laggingProgress * 1.3);
+      if (fullEffects) {
+        // secondary ring lagging behind the main shockwave
+        const laggingProgress = clamp(progress * 0.7, 0, 1);
+        graphics.lineStyle(2.5, explosion.color, 0.4 * (1 - progress));
+        graphics.strokeCircle(explosion.x, explosion.y, explosion.radius * laggingProgress * 1.3);
 
-      // bright white-hot core, visible only in the first moments
-      if (progress < 0.35) {
-        const flashAlpha = 1 - progress / 0.35;
-        graphics.fillStyle(0xfff2c9, 0.85 * flashAlpha);
-        graphics.fillCircle(explosion.x, explosion.y, explosion.radius * 0.32 * (1 - progress * 0.5));
-      }
+        // bright white-hot core, visible only in the first moments
+        if (progress < 0.35) {
+          const flashAlpha = 1 - progress / 0.35;
+          graphics.fillStyle(0xfff2c9, 0.85 * flashAlpha);
+          graphics.fillCircle(explosion.x, explosion.y, explosion.radius * 0.32 * (1 - progress * 0.5));
+        }
 
-      // additive bloom pass, the trick rambo_game uses to make blasts glow
-      const glow = this.glow;
-      if (glow) {
-        glow.fillStyle(explosion.color, 0.34 * (1 - progress));
-        glow.fillCircle(explosion.x, explosion.y, explosion.radius * easeOut * 0.8);
-        if (progress < 0.4) {
-          glow.fillStyle(0xffffff, 0.5 * (1 - progress / 0.4));
-          glow.fillCircle(explosion.x, explosion.y, explosion.radius * 0.3);
+        // additive bloom pass, the trick rambo_game uses to make blasts glow
+        const glow = this.glow;
+        if (glow) {
+          glow.fillStyle(explosion.color, 0.34 * (1 - progress));
+          glow.fillCircle(explosion.x, explosion.y, explosion.radius * easeOut * 0.8);
+          if (progress < 0.4) {
+            glow.fillStyle(0xffffff, 0.5 * (1 - progress / 0.4));
+            glow.fillCircle(explosion.x, explosion.y, explosion.radius * 0.3);
+          }
         }
       }
 
