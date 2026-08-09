@@ -1,8 +1,12 @@
 import { STAGES } from '../data/stages';
 import {
+  compareWeaponPotential,
   MAX_WEAPON_LEVEL,
   PURCHASABLE_WEAPONS,
   WEAPONS,
+  WEAPON_POTENTIAL,
+  weaponMaxPotential,
+  weaponPotentialAtLevel,
   weaponShopPrice,
   weaponsUnlockedAt,
   weaponUnlockedAtMission,
@@ -200,7 +204,8 @@ export class GameDirector {
 
     const unlockedWeapons = this.getUnlockedWeapons();
     const shopWeapons = [...unlockedWeapons, ...PURCHASABLE_WEAPONS]
-      .filter((id, index, all) => all.indexOf(id) === index);
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .sort(compareWeaponPotential);
     for (const weaponId of shopWeapons) {
       const owned = unlockedWeapons.includes(weaponId);
       const level = owned ? this.getWeaponLevel(weaponId) : 0;
@@ -218,6 +223,9 @@ export class GameDirector {
         owned,
         maxed: level >= MAX_WEAPON_LEVEL,
         affordable: level < MAX_WEAPON_LEVEL && this.credits >= price,
+        potential: weaponPotentialAtLevel(weaponId, Math.max(1, level)),
+        maxPotential: weaponMaxPotential(weaponId),
+        weaponRole: WEAPON_POTENTIAL[weaponId].role,
       });
     }
 
@@ -323,7 +331,9 @@ export class GameDirector {
     const progression = weaponsUnlockedAt(progressionIndex);
     const starting = PLAYER_CLASSES[this.playerClass].startingWeapon;
     const all = [starting, ...progression, ...this.boughtWeapons];
-    return all.filter((id, index) => all.indexOf(id) === index);
+    return all
+      .filter((id, index) => all.indexOf(id) === index)
+      .sort(compareWeaponPotential);
   }
 
   private getWeaponLevel(id: WeaponId): number {

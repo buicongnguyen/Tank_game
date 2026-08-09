@@ -2452,6 +2452,13 @@ a {
   text-transform: uppercase;
 }
 
+.shop-column-heading > small {
+  color: rgba(149, 231, 255, 0.72);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .shop-weapon-matrix {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2532,6 +2539,30 @@ a {
   color: #95e7ff;
   font-size: 0.58rem;
   font-weight: 700;
+  line-height: 1.18;
+}
+
+.shop-weapon-potential {
+  display: grid;
+  gap: 1px;
+  margin: 2px 0;
+  padding: 4px 5px;
+  border-left: 2px solid rgba(239, 182, 72, 0.72);
+  background: rgba(239, 182, 72, 0.07);
+  text-align: left;
+}
+
+.shop-weapon-potential b {
+  color: #ffd47c;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shop-weapon-potential small,
+.shop-card.is-compact .shop-weapon-potential small {
+  color: rgba(228, 238, 229, 0.66);
+  font-size: 0.52rem;
   line-height: 1.18;
 }
 

@@ -128,6 +128,9 @@ export interface ShopEntry {
   maxed: boolean;
   affordable: boolean;
   lockedReason?: string;
+  potential?: number;
+  maxPotential?: number;
+  weaponRole?: string;
 }
 
 export interface TankHudStatus {

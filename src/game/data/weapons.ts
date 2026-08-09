@@ -321,32 +321,73 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
 };
 
 export const WEAPON_ORDER: WeaponId[] = [
-  'rocket', 'autocannon', 'mortar', 'railgun', 'scattergun', 'homing', 'drone',
-  'rifle', 'launcher', 'shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb',
+  'rifle',
+  'launcher', 'rocket', 'shotgun', 'machineGun',
+  'flamer', 'autocannon', 'scattergun', 'mortar',
+  'gasBomb', 'sniper', 'homing',
+  'drone', 'railgun', 'laser',
 ];
 
 /** Weapons that are bought in the shop rather than unlocked by progress. */
-export const PURCHASABLE_WEAPONS: WeaponId[] = ['shotgun', 'machineGun', 'sniper', 'flamer', 'laser', 'gasBomb', 'drone'];
+export const PURCHASABLE_WEAPONS: WeaponId[] = ['shotgun', 'machineGun', 'flamer', 'gasBomb', 'sniper', 'drone', 'laser'];
 
 export const WEAPON_PRICE: Partial<Record<WeaponId, number>> = {
-  rocket: 180,
+  rocket: 220,
   rifle: 140,
   launcher: 200,
-  autocannon: 320,
-  mortar: 400,
-  railgun: 560,
-  scattergun: 260,
-  homing: 520,
-  drone: 560,
-  shotgun: 220,
-  machineGun: 340,
-  sniper: 480,
-  flamer: 300,
-  laser: 640,
+  autocannon: 360,
+  mortar: 440,
+  railgun: 720,
+  scattergun: 400,
+  homing: 580,
+  drone: 680,
+  shotgun: 240,
+  machineGun: 300,
+  sniper: 540,
+  flamer: 340,
+  laser: 760,
   gasBomb: 520,
 };
 
 export const MAX_WEAPON_LEVEL = 4;
+
+export interface WeaponPotentialSpec {
+  /** Base strength band at weapon level 1. Each upgrade adds one point. */
+  tier: 1 | 2 | 3 | 4 | 5;
+  role: string;
+}
+
+/** Canonical low-to-high arsenal ranking used by the shop and weapon swap. */
+export const WEAPON_POTENTIAL: Record<WeaponId, WeaponPotentialSpec> = {
+  rifle: { tier: 1, role: 'Starter precision' },
+  launcher: { tier: 2, role: 'Starter splash' },
+  rocket: { tier: 2, role: 'Balanced explosive' },
+  shotgun: { tier: 2, role: 'Close burst' },
+  machineGun: { tier: 2, role: 'Rapid suppression' },
+  flamer: { tier: 3, role: 'Close area denial' },
+  autocannon: { tier: 3, role: 'Armored burst' },
+  scattergun: { tier: 3, role: 'Heavy close spread' },
+  mortar: { tier: 3, role: 'Indirect splash' },
+  gasBomb: { tier: 4, role: 'Persistent area damage' },
+  sniper: { tier: 4, role: 'Long-range piercing' },
+  homing: { tier: 4, role: 'Multi-target seeking' },
+  drone: { tier: 5, role: 'Cover-bypassing strike' },
+  railgun: { tier: 5, role: 'Heavy line piercing' },
+  laser: { tier: 5, role: 'Maximum penetration' },
+};
+
+export function weaponPotentialAtLevel(id: WeaponId, level: number): number {
+  return WEAPON_POTENTIAL[id].tier + Math.max(0, Math.min(MAX_WEAPON_LEVEL, level) - 1);
+}
+
+export function weaponMaxPotential(id: WeaponId): number {
+  return weaponPotentialAtLevel(id, MAX_WEAPON_LEVEL);
+}
+
+export function compareWeaponPotential(first: WeaponId, second: WeaponId): number {
+  const tierDifference = WEAPON_POTENTIAL[first].tier - WEAPON_POTENTIAL[second].tier;
+  return tierDifference !== 0 ? tierDifference : WEAPON_ORDER.indexOf(first) - WEAPON_ORDER.indexOf(second);
+}
 
 export function weaponShopPrice(id: WeaponId, level: number): number {
   const basePrice = WEAPON_PRICE[id] ?? 240;

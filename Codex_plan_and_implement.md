@@ -20,6 +20,7 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 10. Rebalance destructible cover and add durable rock walls.
 11. Allow a failed campaign to continue from any previously played stage.
 12. Expand tank and gun silhouettes, add a suicide drone, make the Mini Tank use a burst machine gun, and rebalance campaign upgrades.
+13. Sort weapons and their upgrade potential from lower to higher so the arsenal has an understandable progression.
 
 ## Implementation Summary
 
@@ -71,6 +72,22 @@ Changes:
 - Pause, debrief, depot, and campaign-route UI now expose threat level and the recommended counter-upgrade.
 - Mission rewards were increased so every successful stage funds at least one meaningful depot decision; this supports the intended upgrade loop instead of forcing several no-purchase stages.
 - Ridge Bombard was reduced from 120 seconds to 45 seconds, matching the shorter mobile defense pacing established for Relay Hold.
+
+### 0.4 Weapon potential progression
+
+- Added one canonical potential ranking for every weapon. The base bands progress from starter equipment (tier 1), through standard and specialist weapons (tiers 2-4), to end-game systems (tier 5).
+- The depot and weapon-swap sequence now use the same low-to-high ordering instead of mixing early and late weapons.
+- Every weapon card displays its current potential, maximum potential, and tactical role. Each paid weapon level adds one potential point, matching the existing damage, velocity, and cooldown improvements.
+- Weapon prices now follow clearer strength bands: standard weapons are affordable early, specialist weapons require mid-campaign investment, and drone/railgun/laser systems carry end-game prices.
+- Tactical roles remain visible because a higher potential rating does not make a specialist weapon universally better at every range or against every target.
+
+Base potential order:
+
+1. Rifle — tier 1.
+2. Launcher, Rocket, Shotgun, and Machine Gun — tier 2.
+3. Flamer, Autocannon, Scattergun, and Mortar — tier 3.
+4. Gas Bomb, Sniper, and Homing Missile — tier 4.
+5. Suicide Drone, Railgun, and Laser — tier 5.
 
 ### 1. Mobile movement and aiming
 

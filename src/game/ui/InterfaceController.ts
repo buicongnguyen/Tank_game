@@ -354,6 +354,7 @@ export class InterfaceController {
             <div class="shop-column-heading">
               <span>Left Rack</span>
               <strong>Weapons</strong>
+              <small>Each group: low &rarr; high potential</small>
             </div>
             <div class="shop-weapon-matrix">
               ${weaponGroups.map((group) => {
@@ -419,6 +420,15 @@ export class InterfaceController {
   }
 
   private renderShopButton(entry: ShopEntry, compact = false, currentValue?: string): string {
+    const weaponPotential = entry.kind === 'weapon' && entry.potential !== undefined && entry.maxPotential !== undefined
+      ? `
+        <span class="shop-weapon-potential">
+          <b>Potential ${entry.potential}/${entry.maxPotential}</b>
+          <small>${entry.weaponRole ?? 'Combat weapon'} &middot; +1 per upgrade</small>
+        </span>
+      `
+      : '';
+
     return `
       <button type="button" class="shop-card ${compact ? 'is-compact' : ''} ${entry.owned ? 'is-owned' : ''} ${entry.maxed ? 'is-maxed' : ''}"
               data-buy="${entry.id}" ${entry.maxed || !entry.affordable ? 'disabled' : ''}>
@@ -427,6 +437,7 @@ export class InterfaceController {
           <em>Lv ${entry.level}/${entry.maxLevel}</em>
         </span>
         ${currentValue ? `<span class="shop-current-value">${currentValue}</span>` : ''}
+        ${weaponPotential}
         <small>${entry.description}</small>
         <span class="shop-price">
           ${entry.maxed
