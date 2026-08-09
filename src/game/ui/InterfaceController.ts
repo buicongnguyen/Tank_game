@@ -673,22 +673,24 @@ export class InterfaceController {
 
     if (snapshot.phase === 'menu') {
       return `
-        <section class="overlay-card tank-overlay-card">
-          <span class="overlay-kicker">Mobile Tank Prototype</span>
-          <h1>Tank Game: Steel Front</h1>
-          <p>
-            Pilot a customizable tank through short armored missions. Drive with weight, aim the turret,
-            crack destructible cover, angle your armor, and choose upgrades between fights.
-          </p>
-          ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> every chassis is selectable for balance testing.</p>' : ''}
-          ${this.renderClassSelector()}
-          ${this.renderDifficultySelector()}
-          <div class="overlay-actions">
-            <button type="button" class="action-button primary" data-start>Start Campaign</button>
+        <section class="overlay-card tank-overlay-card menu-overlay-card">
+          <div class="menu-overlay-scroll">
+            <span class="overlay-kicker">Mobile Tank Prototype</span>
+            <h1>Tank Game: Steel Front</h1>
+            <p>
+              Pilot a customizable tank through short armored missions. Drive with weight, aim the turret,
+              crack destructible cover, angle your armor, and choose upgrades between fights.
+            </p>
+            ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> every chassis is selectable for balance testing.</p>' : ''}
+            ${this.renderClassSelector()}
+            ${this.renderDifficultySelector()}
+            <div class="overlay-notes">
+              <span>First mission: ${mission.codename}</span>
+              <span>${mission.briefing}</span>
+            </div>
           </div>
-          <div class="overlay-notes">
-            <span>First mission: ${mission.codename}</span>
-            <span>${mission.briefing}</span>
+          <div class="overlay-actions menu-start-actions">
+            <button type="button" class="action-button primary" data-start>Start Campaign</button>
           </div>
         </section>
       `;

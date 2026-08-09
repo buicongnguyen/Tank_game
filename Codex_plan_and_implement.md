@@ -21,6 +21,7 @@ The work was based on comparison with the sibling `../rambo_game` repository and
 11. Allow a failed campaign to continue from any previously played stage.
 12. Expand tank and gun silhouettes, add a suicide drone, make the Mini Tank use a burst machine gun, and rebalance campaign upgrades.
 13. Sort weapons and their upgrade potential from lower to higher so the arsenal has an understandable progression.
+14. Fix the desktop start screen so the campaign entry action cannot be clipped below the game frame.
 
 ## Implementation Summary
 
@@ -116,6 +117,14 @@ Review findings fixed after implementation:
 - Gas-cloud pulses initially inherited cannon knockback through the generic area-damage path. Area damage now preserves its weapon feedback style, and chemical damage applies no physical impulse.
 - Repeated pellet explosions could restart camera shake several times in one frame. World shake now has a short cooldown.
 - Explosion, muzzle, impact, and floating-text collections all have explicit caps so sustained automatic fire cannot grow visual work without bound.
+
+### 0.6 Desktop campaign-entry visibility
+
+- The five-chassis test-mode selector made the start card approximately 898 px tall while a 1280x720 desktop game frame provided only about 603 px. Because the frame intentionally hides overflow, `Start Campaign` was rendered below the visible frame.
+- The menu now has a definite height derived from the game frame and two explicit rows: a configuration region and a persistent deployment footer.
+- The desktop card is wider, all five units share one row, and title, description, selector, and spacing sizes are compacted. The entire setup now fits on the first visible page without internal scrolling; scrolling remains available only as a safety fallback.
+- Browser checks confirmed the full first page and button are visible, and that the button starts Mission 1, at 901x600, 1024x768, 1280x720, 1366x768, 1440x900, and 1920x1080.
+- Mobile regression checks passed at 844x390 and 390x844 with no horizontal overflow or console warnings/errors.
 
 ### 1. Mobile movement and aiming
 
