@@ -1,6 +1,17 @@
 import type { WeaponId } from '../types';
 
 export type WeaponProjectileStyle = 'rocket' | 'shell' | 'mortar' | 'rail' | 'gas' | 'drone';
+export type WeaponFeedbackStyle =
+  | 'smallArm'
+  | 'automatic'
+  | 'cannon'
+  | 'rocket'
+  | 'mortar'
+  | 'rail'
+  | 'energy'
+  | 'flame'
+  | 'chemical'
+  | 'drone';
 
 export interface WeaponSpec {
   id: WeaponId;
@@ -9,6 +20,8 @@ export interface WeaponSpec {
   /** Weapon becomes available once the campaign reaches this mission index. */
   unlockAtMissionIndex: number;
   style: WeaponProjectileStyle;
+  /** Controls audiovisual fire and impact character without changing balance. */
+  feedback: WeaponFeedbackStyle;
   color: number;
   /** Multiplier applied to the tank's secondary cooldown stat. */
   cooldownScale: number;
@@ -36,6 +49,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Standard guided-fin rocket with a solid blast.',
     unlockAtMissionIndex: 0,
     style: 'rocket',
+    feedback: 'rocket',
     color: 0x95e7ff,
     cooldownScale: 1,
     shots: 1,
@@ -55,6 +69,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Three-round burst of fast, light shells. Great against scouts.',
     unlockAtMissionIndex: 10,
     style: 'shell',
+    feedback: 'automatic',
     color: 0xffe08a,
     cooldownScale: 0.42,
     shots: 3,
@@ -74,6 +89,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Lobs over cover and detonates at your aim point with a wide blast.',
     unlockAtMissionIndex: 11,
     style: 'mortar',
+    feedback: 'mortar',
     color: 0xffc65f,
     cooldownScale: 1.25,
     shots: 1,
@@ -93,6 +109,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Hypervelocity slug that punches through a column of armor.',
     unlockAtMissionIndex: 12,
     style: 'rail',
+    feedback: 'rail',
     color: 0xb59cff,
     cooldownScale: 1.5,
     shots: 1,
@@ -112,6 +129,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Short-range pellet spread that shreds anything hugging your hull.',
     unlockAtMissionIndex: 13,
     style: 'shell',
+    feedback: 'cannon',
     color: 0xffb15f,
     cooldownScale: 0.75,
     shots: 6,
@@ -131,6 +149,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Three seeker missiles that curve onto the nearest target.',
     unlockAtMissionIndex: 14,
     style: 'rocket',
+    feedback: 'rocket',
     color: 0x8ef0c0,
     cooldownScale: 1.35,
     shots: 3,
@@ -150,6 +169,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Launches a propeller drone that flies over cover, seeks the nearest target, and detonates on impact.',
     unlockAtMissionIndex: 99,
     style: 'drone',
+    feedback: 'drone',
     color: 0xffd766,
     cooldownScale: 1.7,
     shots: 1,
@@ -172,6 +192,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Standard service rifle. Quick, accurate, light on damage.',
     unlockAtMissionIndex: 0,
     style: 'shell',
+    feedback: 'smallArm',
     color: 0xffe9a8,
     cooldownScale: 0.34,
     shots: 1,
@@ -191,6 +212,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Five-pellet blast. Devastating up close, useless at range.',
     unlockAtMissionIndex: 99,
     style: 'shell',
+    feedback: 'cannon',
     color: 0xffc27a,
     cooldownScale: 0.7,
     shots: 5,
@@ -210,6 +232,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Eight small rounds fire in one rapid burst. The Mini Tank carries this as its basic gun.',
     unlockAtMissionIndex: 99,
     style: 'shell',
+    feedback: 'automatic',
     color: 0xfff0b0,
     cooldownScale: 0.46,
     shots: 8,
@@ -229,6 +252,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'One heavy round that punches clean through a line of targets.',
     unlockAtMissionIndex: 99,
     style: 'rail',
+    feedback: 'rail',
     color: 0xc8e8ff,
     cooldownScale: 1.35,
     shots: 1,
@@ -248,6 +272,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Short cone of burning fuel. Shreds anything that closes in.',
     unlockAtMissionIndex: 99,
     style: 'shell',
+    feedback: 'flame',
     color: 0xff8a3c,
     cooldownScale: 0.3,
     shots: 4,
@@ -267,6 +292,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Continuous beam that burns straight through anything in line.',
     unlockAtMissionIndex: 99,
     style: 'rail',
+    feedback: 'energy',
     color: 0x7cf6ff,
     cooldownScale: 0.55,
     shots: 1,
@@ -286,6 +312,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Lobbed canister that leaves a poison cloud burning anything inside it.',
     unlockAtMissionIndex: 99,
     style: 'gas',
+    feedback: 'chemical',
     color: 0x8cff6a,
     cooldownScale: 1.5,
     shots: 1,
@@ -305,6 +332,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     description: 'Shoulder-fired rocket with a wide blast.',
     unlockAtMissionIndex: 0,
     style: 'rocket',
+    feedback: 'rocket',
     color: 0xff7447,
     cooldownScale: 1.15,
     shots: 1,

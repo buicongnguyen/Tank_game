@@ -89,6 +89,34 @@ Base potential order:
 4. Gas Bomb, Sniper, and Homing Missile — tier 4.
 5. Suicide Drone, Railgun, and Laser — tier 5.
 
+### 0.5 Combat feedback evaluation and implementation plan
+
+Evaluation findings:
+
+- Projectile collision, swept-hit detection, weapon silhouettes, and large explosion rendering already provide a solid mechanical base.
+- Firing feedback is too generic: there is no muzzle flash, recoil barely varies, and every weapon is reduced to either the cannon or rocket sound.
+- A direct hit from a zero-blast weapon creates no impact visual or sound because only blast-radius hits create an explosion.
+- Shield absorption is visible only as a smaller HUD value. Armor facing, rear-hit vulnerability, and shelter mitigation are represented only by an unlabelled floating number.
+- Targets receive no short hit flash or readable physical jolt, so even damaging shots can look as if they passed through.
+- Reusing the full explosion effect for every bullet would be noisy and expensive on mobile, especially for machine-gun bursts.
+
+Implementation plan:
+
+1. Give every weapon a feedback style that describes its fire character independently from damage balance.
+2. Add short-lived, capped muzzle-flash and impact-effect runtimes rendered through the existing shared Phaser graphics layers.
+3. Create distinct kinetic, explosive, rail, energy, flame, chemical, and shield responses without adding bitmap downloads or per-hit DOM elements.
+4. Add a brief target flash, modest velocity impulse, and clear `FRONT`, `REAR`, `COVER`, or `SHIELD` hit text so armor behavior is understandable during play.
+5. Expand procedural WebAudio cues for rifles, automatic weapons, heavy cannons, mortars, railguns, energy weapons, flames, and shields.
+6. Cap effect counts and camera-shake frequency, then validate desktop and mobile layouts/performance before performing a separate code and logic review.
+
+Review findings fixed after implementation:
+
+- Simultaneous shotgun/scattergun pellets initially repeated launch recoil and muzzle/audio feedback for every pellet. They now produce one launch event per trigger, while genuinely timed bursts still react for every round.
+- Area damage initially created duplicate impact objects at the explosion center for every affected target. Splash now relies on the explosion plus the target flash/label.
+- Gas-cloud pulses initially inherited cannon knockback through the generic area-damage path. Area damage now preserves its weapon feedback style, and chemical damage applies no physical impulse.
+- Repeated pellet explosions could restart camera shake several times in one frame. World shake now has a short cooldown.
+- Explosion, muzzle, impact, and floating-text collections all have explicit caps so sustained automatic fire cannot grow visual work without bound.
+
 ### 1. Mobile movement and aiming
 
 Files:

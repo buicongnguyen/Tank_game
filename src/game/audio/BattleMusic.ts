@@ -39,7 +39,15 @@ const NOTE_FREQUENCIES: Record<string, number> = {
 
 export type TankSfxCue =
   | 'deploy'
+  | 'small-arm'
+  | 'automatic'
   | 'cannon'
+  | 'mortar'
+  | 'rail'
+  | 'energy'
+  | 'flame'
+  | 'drone'
+  | 'shield'
   | 'rocket'
   | 'impact'
   | 'explosion'
@@ -51,7 +59,11 @@ export type TankSfxCue =
   | 'mission-fail';
 
 const SFX_THROTTLE_SECONDS: Partial<Record<TankSfxCue, number>> = {
+  'small-arm': 0.035,
+  automatic: 0.032,
   cannon: 0.045,
+  flame: 0.055,
+  shield: 0.055,
   impact: 0.08,
   explosion: 0.12,
   repair: 0.18,
@@ -142,9 +154,41 @@ export class BattleMusic {
         this.playEffectTone(196, 294, 'triangle', time, 0.14, 0.08 * normalized, 1200);
         this.playEffectTone(294, 392, 'triangle', time + 0.11, 0.16, 0.08 * normalized, 1400);
         break;
+      case 'small-arm':
+        this.playEffectTone(260, 105, 'square', time, 0.065, 0.1 * normalized, 1800);
+        this.playEffectNoise(time, 0.045, 0.08 * normalized, 'highpass', 2400);
+        break;
+      case 'automatic':
+        this.playEffectTone(190, 78, 'sawtooth', time, 0.075, 0.11 * normalized, 1350);
+        this.playEffectNoise(time, 0.055, 0.1 * normalized, 'bandpass', 1750);
+        break;
       case 'cannon':
         this.playEffectTone(86, 38, 'sawtooth', time, 0.24, 0.32 * normalized, 420);
         this.playEffectNoise(time, 0.095, 0.24 * normalized, 'lowpass', 840);
+        break;
+      case 'mortar':
+        this.playEffectTone(115, 42, 'triangle', time, 0.3, 0.26 * normalized, 520);
+        this.playEffectNoise(time, 0.16, 0.18 * normalized, 'lowpass', 940);
+        break;
+      case 'rail':
+        this.playEffectTone(520, 92, 'sawtooth', time, 0.24, 0.2 * normalized, 2600);
+        this.playEffectNoise(time, 0.07, 0.14 * normalized, 'highpass', 3900);
+        break;
+      case 'energy':
+        this.playEffectTone(740, 2100, 'sine', time, 0.18, 0.18 * normalized, 4200);
+        this.playEffectTone(370, 980, 'triangle', time + 0.025, 0.2, 0.09 * normalized, 3000);
+        break;
+      case 'flame':
+        this.playEffectNoise(time, 0.14, 0.14 * normalized, 'bandpass', 1100);
+        this.playEffectTone(120, 72, 'sawtooth', time, 0.12, 0.07 * normalized, 760);
+        break;
+      case 'drone':
+        this.playEffectTone(150, 420, 'sawtooth', time, 0.24, 0.12 * normalized, 1800);
+        this.playEffectTone(82, 120, 'square', time, 0.28, 0.06 * normalized, 960);
+        break;
+      case 'shield':
+        this.playEffectTone(920, 1480, 'sine', time, 0.14, 0.13 * normalized, 3600);
+        this.playEffectTone(460, 720, 'triangle', time, 0.19, 0.07 * normalized, 2400);
         break;
       case 'rocket':
         this.playEffectTone(170, 520, 'sawtooth', time, 0.2, 0.18 * normalized, 1800);

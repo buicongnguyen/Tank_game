@@ -3,7 +3,8 @@ import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
 import { darkenColor, INFANTRY_PALETTE, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
-import { WEAPONS, type WeaponSpec } from '../data/weapons';
+import { COMBAT_FEEDBACK } from '../data/combatFeedback';
+import { WEAPONS, type WeaponFeedbackStyle, type WeaponSpec } from '../data/weapons';
 import { PLAYER_CLASSES } from '../data/playerClasses';
 import { progressionForMission } from '../data/progression';
 import type {
@@ -55,6 +56,9 @@ interface TankRuntime {
   shield: number;
   shieldMax: number;
   shelteredBy?: string;
+  hitFlashMs: number;
+  hitFlashMaxMs: number;
+  hitFlashColor: number;
 }
 
 interface PickupRuntime {
@@ -92,6 +96,7 @@ interface ProjectileRuntime {
   targetX: number;
   targetY: number;
   hitTankIds: string[];
+  feedback: WeaponFeedbackStyle;
 }
 
 interface CoverRuntime {
@@ -139,6 +144,30 @@ interface ExplosionRuntime {
   duration: number;
   color: number;
   sparks: ExplosionSpark[];
+}
+
+interface MuzzleFlashRuntime {
+  x: number;
+  y: number;
+  angle: number;
+  age: number;
+  duration: number;
+  size: number;
+  color: number;
+  feedback: WeaponFeedbackStyle;
+}
+
+interface ImpactRuntime {
+  x: number;
+  y: number;
+  angle: number;
+  age: number;
+  duration: number;
+  size: number;
+  color: number;
+  feedback: WeaponFeedbackStyle;
+  shield: boolean;
+  sparkAngles: number[];
 }
 
 interface FloatingText {
@@ -301,6 +330,13 @@ const PICKUP_TTL_MS = 22000;
 const GAS_CLOUD_DURATION_MS = 3600;
 /** DOM HUD updates are intentionally slower than the 60 Hz simulation. */
 const HUD_UPDATE_INTERVAL_MS = 100;
+/** Hard caps prevent automatic weapons from growing unbounded effect arrays. */
+const MAX_MUZZLE_FLASHES = 48;
+const MAX_IMPACT_EFFECTS = 72;
+const MAX_EXPLOSIONS = 64;
+const MAX_FLOATING_TEXTS = 40;
+const PLAYER_HIT_SHAKE_COOLDOWN_MS = 90;
+const WORLD_SHAKE_COOLDOWN_MS = 45;
 
 /** Hull speed a tank needs before it can run infantry down. */
 const INFANTRY_CRUSH_SPEED = 90;
@@ -495,9 +531,13 @@ export class BattleScene extends Phaser.Scene {
   private captureZones: CaptureRuntime[] = [];
   private projectiles: ProjectileRuntime[] = [];
   private explosions: ExplosionRuntime[] = [];
+  private muzzleFlashes: MuzzleFlashRuntime[] = [];
+  private impacts: ImpactRuntime[] = [];
   private pickups: PickupRuntime[] = [];
   private pickupLabels: Phaser.GameObjects.Text[] = [];
   private shieldQuietMs = 0;
+  private playerHitShakeCooldownMs = 0;
+  private worldShakeCooldownMs = 0;
   private floatingTexts: FloatingText[] = [];
   private lastRunSerial = -1;
   private missionGeneration = 0;
@@ -605,6 +645,8 @@ export class BattleScene extends Phaser.Scene {
     this.missionElapsed += delta;
     this.secondaryTimer = Math.max(0, this.secondaryTimer - delta);
     this.specialTimer = Math.max(0, this.specialTimer - delta);
+    this.playerHitShakeCooldownMs = Math.max(0, this.playerHitShakeCooldownMs - delta);
+    this.worldShakeCooldownMs = Math.max(0, this.worldShakeCooldownMs - delta);
     this.updateMagazine(snapshot.tankStats, delta);
 
     this.updatePlayer(player, mission, snapshot.tankStats, dt, delta);
@@ -615,6 +657,7 @@ export class BattleScene extends Phaser.Scene {
     this.updateConvoyEscapeState(mission, delta);
     this.updateProjectiles(dt);
     this.updateExplosions(delta);
+    this.updateCombatFeedback(delta);
     this.updateCaptureZones(player, dt);
     this.updateRepairPads(player, snapshot.tankStats, dt);
     this.updateMines(player);
@@ -643,8 +686,12 @@ export class BattleScene extends Phaser.Scene {
     this.missionResolved = false;
     this.projectiles = [];
     this.explosions = [];
+    this.muzzleFlashes = [];
+    this.impacts = [];
     this.pickups = [];
     this.shieldQuietMs = 0;
+    this.playerHitShakeCooldownMs = 0;
+    this.worldShakeCooldownMs = 0;
     for (const text of this.floatingTexts) {
       text.label.destroy();
     }
@@ -739,6 +786,9 @@ export class BattleScene extends Phaser.Scene {
       shield: snapshot.tankStats.shieldMax,
       shieldMax: snapshot.tankStats.shieldMax,
       shelteredBy: undefined,
+      hitFlashMs: 0,
+      hitFlashMaxMs: 1,
+      hitFlashColor: 0xffffff,
     };
 
     this.cameras.main.setBounds(0, 0, mission.worldWidth, mission.worldHeight);
@@ -794,6 +844,9 @@ export class BattleScene extends Phaser.Scene {
       shield: 0,
       shieldMax: 0,
       shelteredBy: undefined,
+      hitFlashMs: 0,
+      hitFlashMaxMs: 1,
+      hitFlashColor: 0xffffff,
     };
   }
 
@@ -1264,7 +1317,15 @@ export class BattleScene extends Phaser.Scene {
             this.createGasCloud(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
           } else {
             this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
-            this.damageArea(projectile.x, projectile.y, projectile.blastRadius, projectile.damage, projectile.team);
+            this.damageArea(
+              projectile.x,
+              projectile.y,
+              projectile.blastRadius,
+              projectile.damage,
+              projectile.team,
+              undefined,
+              projectile.feedback,
+            );
           }
           projectile.ttl = -1;
         }
@@ -1350,6 +1411,7 @@ export class BattleScene extends Phaser.Scene {
           const impactX = Phaser.Math.Linear(projectile.previousX, projectile.x, escortHitTime);
           const impactY = Phaser.Math.Linear(projectile.previousY, projectile.y, escortHitTime);
           this.escort.health -= projectile.damage * 0.8;
+          this.createImpactEffect(impactX, impactY, projectile, false, projectile.blastRadius <= 0);
           this.createExplosion(impactX, impactY, projectile.blastRadius, projectile.color);
           projectile.ttl = -1;
           if (this.escort.health <= 0) {
@@ -1440,6 +1502,7 @@ export class BattleScene extends Phaser.Scene {
       // wildly. Small-arms fire can still chip cover, but much more slowly.
       const structuralDamage = projectile.sourceKind === 'rifleman' && projectile.kind === 'shell' ? 0.25 : 1;
       this.damageCover(cover, structuralDamage, projectile.team);
+      this.createImpactEffect(projectile.x, projectile.y, projectile, false, projectile.blastRadius <= 0);
       this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
     }
 
@@ -1581,6 +1644,25 @@ export class BattleScene extends Phaser.Scene {
       text.label.destroy();
       return false;
     });
+  }
+
+  private updateCombatFeedback(delta: number): void {
+    for (const flash of this.muzzleFlashes) {
+      flash.age += delta;
+    }
+    this.muzzleFlashes = this.muzzleFlashes.filter((flash) => flash.age < flash.duration);
+
+    for (const impact of this.impacts) {
+      impact.age += delta;
+    }
+    this.impacts = this.impacts.filter((impact) => impact.age < impact.duration);
+
+    if (this.player) {
+      this.player.hitFlashMs = Math.max(0, this.player.hitFlashMs - delta);
+    }
+    for (const enemy of this.enemies) {
+      enemy.hitFlashMs = Math.max(0, enemy.hitFlashMs - delta);
+    }
   }
 
   private updateCaptureZones(player: TankRuntime, dt: number): void {
@@ -1927,6 +2009,8 @@ export class BattleScene extends Phaser.Scene {
       homingStrength?: number;
       arcing?: boolean;
       target?: { x: number; y: number };
+      feedback?: WeaponFeedbackStyle;
+      emitLaunchFeedback?: boolean;
     } = {},
   ): void {
     if (!source.alive || (!ignoreReload && source.reloadTimer > 0)) {
@@ -1937,11 +2021,17 @@ export class BattleScene extends Phaser.Scene {
     const muzzleDistance = source.radius + 20;
     const x = source.x + Math.cos(angle) * muzzleDistance;
     const y = source.y + Math.sin(angle) * muzzleDistance;
+    const feedback = options.feedback ?? this.defaultFeedbackForShot(source, kind);
+    const feedbackProfile = COMBAT_FEEDBACK[feedback];
     if (!ignoreReload) {
       source.reloadTimer = source.reloadMs;
     }
-    source.vx -= Math.cos(angle) * (team === 'player' ? 34 : 9);
-    source.vy -= Math.sin(angle) * (team === 'player' ? 34 : 9);
+    const emitLaunchFeedback = options.emitLaunchFeedback ?? true;
+    if (emitLaunchFeedback) {
+      const recoil = feedbackProfile.recoil * (team === 'player' ? 1 : 0.32);
+      source.vx -= Math.cos(angle) * recoil;
+      source.vy -= Math.sin(angle) * recoil;
+    }
     this.projectiles.push({
       id: this.projectileSerial,
       team,
@@ -1964,9 +2054,35 @@ export class BattleScene extends Phaser.Scene {
       targetX: options.target?.x ?? x,
       targetY: options.target?.y ?? y,
       hitTankIds: [],
+      feedback,
     });
     this.projectileSerial += 1;
-    this.playSpatialSfx(kind === 'shell' ? 'cannon' : 'rocket', source.x, source.y, team === 'player' ? 1 : 0.42);
+    if (emitLaunchFeedback) {
+      this.createMuzzleFlash(x, y, angle, color, feedback);
+      this.playSpatialSfx(feedbackProfile.fireCue, source.x, source.y, team === 'player' ? 1 : 0.42);
+    }
+  }
+
+  private defaultFeedbackForShot(source: TankRuntime, kind: ProjectileKind): WeaponFeedbackStyle {
+    if (source.kind === 'rifleman') {
+      return 'smallArm';
+    }
+    if (source.kind === 'rocketeer') {
+      return 'rocket';
+    }
+    if (kind === 'mortar') {
+      return 'mortar';
+    }
+    if (kind === 'rail') {
+      return 'rail';
+    }
+    if (kind === 'gas') {
+      return 'chemical';
+    }
+    if (kind === 'drone') {
+      return 'drone';
+    }
+    return kind === 'rocket' ? 'rocket' : 'cannon';
   }
 
   private fireSelectedWeapon(player: TankRuntime, stats: TankStats, weapon: WeaponSpec): void {
@@ -1991,6 +2107,10 @@ export class BattleScene extends Phaser.Scene {
           homingStrength: weapon.homingStrength,
           arcing: weapon.arcing,
           target: aim,
+          feedback: weapon.feedback,
+          // A simultaneous spread is one trigger event, while a timed burst
+          // should kick and flash for every round.
+          emitLaunchFeedback: weapon.burstDelayMs > 0 || index === 0,
         });
       };
 
@@ -2004,14 +2124,22 @@ export class BattleScene extends Phaser.Scene {
     this.addFloatingText(player.x, player.y - 48, weapon.label, weapon.color);
   }
 
-  private damageTank(target: TankRuntime, damage: number, projectile: ProjectileRuntime, blastRadius: number): void {
+  private damageTank(
+    target: TankRuntime,
+    damage: number,
+    projectile: ProjectileRuntime,
+    blastRadius: number,
+    fromArea = false,
+  ): void {
     const incomingAngle = Math.atan2(-projectile.vy, -projectile.vx);
     const facing = Math.abs(angleDifference(target.bodyAngle, incomingAngle));
+    const frontHit = facing < Math.PI * 0.34;
+    const rearHit = facing > Math.PI * 0.68;
     let multiplier = 1;
 
-    if (facing < Math.PI * 0.34) {
+    if (frontHit) {
       multiplier = target.team === 'player' ? 0.62 : 0.74;
-    } else if (facing > Math.PI * 0.68) {
+    } else if (rearHit) {
       multiplier = 1.42;
     }
 
@@ -2031,8 +2159,9 @@ export class BattleScene extends Phaser.Scene {
     // Shields soak first and stop regenerating for a moment after a hit, which
     // is what makes rifle fire a nuisance rather than a real threat.
     let remaining = applied;
+    let absorbed = 0;
     if (target.shield > 0) {
-      const absorbed = Math.min(target.shield, remaining);
+      absorbed = Math.min(target.shield, remaining);
       target.shield -= absorbed;
       remaining -= absorbed;
       if (target.team === 'player') {
@@ -2043,11 +2172,64 @@ export class BattleScene extends Phaser.Scene {
     }
 
     target.health -= remaining;
+    const shieldHit = absorbed > 0;
+    const profile = COMBAT_FEEDBACK[projectile.feedback];
+    const hitDuration = clamp(85 + applied * 0.9, 90, 190);
+    const flashWindow = Math.max(target.hitFlashMs, hitDuration);
+    target.hitFlashMs = flashWindow;
+    target.hitFlashMaxMs = flashWindow;
+    target.hitFlashColor = shieldHit ? 0x7cf6ff : projectile.color;
+
+    const velocity = Math.hypot(projectile.vx, projectile.vy);
+    if (velocity > 0.001) {
+      const shelterScale = shelter ? 0.25 : 1;
+      const strengthScale = clamp(applied / Math.max(1, damage), 0.35, 1.5);
+      const impulse = profile.hitImpulse * strengthScale * shelterScale;
+      target.vx += projectile.vx / velocity * impulse;
+      target.vy += projectile.vy / velocity * impulse;
+    }
+
+    if (!fromArea) {
+      this.createImpactEffect(
+        projectile.x,
+        projectile.y,
+        projectile,
+        shieldHit,
+        shieldHit || blastRadius <= 0,
+      );
+    }
     if (blastRadius > 0) {
       this.createExplosion(projectile.x, projectile.y, blastRadius, projectile.color);
-      this.damageArea(projectile.x, projectile.y, blastRadius, damage * 0.42, projectile.team, target.id);
+      this.damageArea(
+        projectile.x,
+        projectile.y,
+        blastRadius,
+        damage * 0.42,
+        projectile.team,
+        target.id,
+        projectile.feedback,
+      );
     }
-    this.addFloatingText(target.x, target.y - target.radius - 18, `${Math.round(applied)}`, target.team === 'player' ? 0xff845f : 0xf0d78b);
+
+    const roundedApplied = Math.max(1, Math.round(applied));
+    const hitLabel = shieldHit
+      ? remaining > 0 ? `SHIELD BREAK ${Math.max(1, Math.round(remaining))}` : `SHIELD ${Math.max(1, Math.round(absorbed))}`
+      : shelter ? `COVER ${roundedApplied}`
+        : rearHit ? `REAR ${roundedApplied}`
+          : frontHit ? `FRONT ${roundedApplied}`
+            : `HIT ${roundedApplied}`;
+    this.addFloatingText(
+      target.x,
+      target.y - target.radius - 18,
+      hitLabel,
+      shieldHit ? 0x7cf6ff : target.team === 'player' ? 0xff845f : 0xf0d78b,
+    );
+
+    if (target.team === 'player' && this.playerHitShakeCooldownMs <= 0 && applied >= 3 && this.cameras.main) {
+      const shake = clamp(profile.cameraShake + applied / 45000, 0.00045, 0.0048);
+      this.cameras.main.shake(55, shake);
+      this.playerHitShakeCooldownMs = PLAYER_HIT_SHAKE_COOLDOWN_MS;
+    }
 
     if (target.health <= 0 && target.alive) {
       target.alive = false;
@@ -2059,7 +2241,15 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private damageArea(x: number, y: number, radius: number, damage: number, sourceTeam: Team, ignoreTankId?: string): void {
+  private damageArea(
+    x: number,
+    y: number,
+    radius: number,
+    damage: number,
+    sourceTeam: Team,
+    ignoreTankId?: string,
+    feedback: WeaponFeedbackStyle = 'cannon',
+  ): void {
     const targets = sourceTeam === 'player'
       ? this.enemies.filter((enemy) => enemy.alive)
       : this.player ? [this.player] : [];
@@ -2097,8 +2287,9 @@ export class BattleScene extends Phaser.Scene {
         targetX: x,
         targetY: y,
         hitTankIds: [],
+        feedback,
       };
-      this.damageTank(target, damage * falloff, fakeProjectile, 0);
+      this.damageTank(target, damage * falloff, fakeProjectile, 0, true);
     }
 
     if (sourceTeam === 'enemy' && this.escort) {
@@ -2134,6 +2325,62 @@ export class BattleScene extends Phaser.Scene {
     this.audio?.playSfx(cue, intensity * falloff);
   }
 
+  private createMuzzleFlash(
+    x: number,
+    y: number,
+    angle: number,
+    color: number,
+    feedback: WeaponFeedbackStyle,
+  ): void {
+    const profile = COMBAT_FEEDBACK[feedback];
+    this.muzzleFlashes.push({
+      x,
+      y,
+      angle,
+      age: 0,
+      duration: profile.muzzleDurationMs,
+      size: profile.muzzleSize,
+      color,
+      feedback,
+    });
+    if (this.muzzleFlashes.length > MAX_MUZZLE_FLASHES) {
+      this.muzzleFlashes.splice(0, this.muzzleFlashes.length - MAX_MUZZLE_FLASHES);
+    }
+  }
+
+  private createImpactEffect(
+    x: number,
+    y: number,
+    projectile: ProjectileRuntime,
+    shield: boolean,
+    playSound: boolean,
+  ): void {
+    const profile = COMBAT_FEEDBACK[projectile.feedback];
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    const sparkCount = profile.impactSize >= 18 ? 7 : 4;
+    const sparkAngles = Array.from({ length: sparkCount }, (_, index) => (
+      angle + Math.PI + (index / Math.max(1, sparkCount - 1) - 0.5) * 1.7 + (Math.random() - 0.5) * 0.32
+    ));
+    this.impacts.push({
+      x,
+      y,
+      angle,
+      age: 0,
+      duration: shield ? Math.max(220, profile.impactDurationMs) : profile.impactDurationMs,
+      size: profile.impactSize * (shield ? 1.25 : 1),
+      color: shield ? 0x7cf6ff : projectile.color,
+      feedback: projectile.feedback,
+      shield,
+      sparkAngles,
+    });
+    if (this.impacts.length > MAX_IMPACT_EFFECTS) {
+      this.impacts.splice(0, this.impacts.length - MAX_IMPACT_EFFECTS);
+    }
+    if (playSound) {
+      this.playSpatialSfx(shield ? 'shield' : 'impact', x, y, shield ? 0.78 : 0.58);
+    }
+  }
+
   private createExplosion(x: number, y: number, radius: number, color: number): void {
     if (radius <= 0) {
       return;
@@ -2157,9 +2404,13 @@ export class BattleScene extends Phaser.Scene {
       color,
       sparks,
     });
+    if (this.explosions.length > MAX_EXPLOSIONS) {
+      this.explosions.splice(0, this.explosions.length - MAX_EXPLOSIONS);
+    }
     this.playSpatialSfx(radius >= 100 ? 'explosion' : 'impact', x, y, radius >= 100 ? 1 : 0.72);
-    if (this.cameras.main) {
+    if (this.cameras.main && this.worldShakeCooldownMs <= 0) {
       this.cameras.main.shake(big ? 130 : 80, clamp(radius / (big ? 5200 : 8000), 0.003, 0.018));
+      this.worldShakeCooldownMs = WORLD_SHAKE_COOLDOWN_MS;
     }
   }
 
@@ -2175,6 +2426,9 @@ export class BattleScene extends Phaser.Scene {
       color: 0x8cff6a,
       sparks: [],
     });
+    if (this.explosions.length > MAX_EXPLOSIONS) {
+      this.explosions.splice(0, this.explosions.length - MAX_EXPLOSIONS);
+    }
     this.playSpatialSfx('explosion', x, y, 0.6);
 
     const pulses = 5;
@@ -2182,7 +2436,7 @@ export class BattleScene extends Phaser.Scene {
     for (let index = 0; index < pulses; index += 1) {
       this.time.delayedCall(index * (GAS_CLOUD_DURATION_MS / pulses), () => {
         if (generation === this.missionGeneration && this.snapshot?.phase === 'playing') {
-          this.damageArea(x, y, radius, damage, team);
+          this.damageArea(x, y, radius, damage, team, undefined, 'chemical');
         }
       });
     }
@@ -2204,7 +2458,7 @@ export class BattleScene extends Phaser.Scene {
         const x = clamp(target.x + Math.cos(offsetAngle) * radius, 60, this.mission?.worldWidth ?? target.x);
         const y = clamp(target.y + Math.sin(offsetAngle) * radius, 60, this.mission?.worldHeight ?? target.y);
         this.createExplosion(x, y, 152, 0xffc65f);
-        this.damageArea(x, y, 152, (this.snapshot?.tankStats.shellDamage ?? 95) * 1.35, 'player');
+        this.damageArea(x, y, 152, (this.snapshot?.tankStats.shellDamage ?? 95) * 1.35, 'player', undefined, 'mortar');
       });
     }
   }
@@ -2414,7 +2668,9 @@ export class BattleScene extends Phaser.Scene {
     this.drawTanks(graphics);
     this.drawPickups(graphics);
     this.syncPickupLabels();
+    this.drawMuzzleFlashes(graphics);
     this.drawProjectiles(graphics);
+    this.drawImpactEffects(graphics);
     this.drawExplosions(graphics);
   }
 
@@ -2864,6 +3120,94 @@ export class BattleScene extends Phaser.Scene {
     this.drawCoverHealthBar(graphics, cover, top - 11);
   }
 
+  private drawMuzzleFlashes(graphics: Phaser.GameObjects.Graphics): void {
+    for (const flash of this.muzzleFlashes) {
+      if (!this.isVisible(flash.x, flash.y, flash.size * 3)) {
+        continue;
+      }
+
+      const progress = clamp(flash.age / flash.duration, 0, 1);
+      const alpha = 1 - progress;
+      const size = flash.size * (1 + progress * 0.28);
+      const forward = localToWorld(flash.x, flash.y, flash.angle, size * 1.35, 0);
+      const upper = localToWorld(flash.x, flash.y, flash.angle, size * 0.72, -size * 0.52);
+      const lower = localToWorld(flash.x, flash.y, flash.angle, size * 0.72, size * 0.52);
+
+      graphics.lineStyle(Math.max(2, size * 0.38), flash.color, 0.82 * alpha);
+      graphics.lineBetween(flash.x, flash.y, forward.x, forward.y);
+      graphics.lineStyle(Math.max(1.5, size * 0.18), 0xfff2c9, 0.95 * alpha);
+      graphics.lineBetween(flash.x, flash.y, upper.x, upper.y);
+      graphics.lineBetween(flash.x, flash.y, lower.x, lower.y);
+      graphics.fillStyle(0xffffff, 0.88 * alpha);
+      graphics.fillCircle(flash.x, flash.y, Math.max(2, size * 0.3));
+
+      if (flash.feedback === 'rocket' || flash.feedback === 'drone') {
+        const exhaust = localToWorld(flash.x, flash.y, flash.angle, -size * 1.15, 0);
+        graphics.lineStyle(Math.max(2, size * 0.3), 0xff9b42, 0.72 * alpha);
+        graphics.lineBetween(flash.x, flash.y, exhaust.x, exhaust.y);
+      } else if (flash.feedback === 'rail' || flash.feedback === 'energy') {
+        const beamTip = localToWorld(flash.x, flash.y, flash.angle, size * 2.4, 0);
+        graphics.lineStyle(Math.max(2, size * 0.2), flash.color, 0.7 * alpha);
+        graphics.lineBetween(flash.x, flash.y, beamTip.x, beamTip.y);
+        this.glow?.fillStyle(flash.color, 0.26 * alpha);
+        this.glow?.fillCircle(flash.x, flash.y, size * 1.15);
+      } else if (flash.feedback === 'flame') {
+        for (let index = 1; index <= 3; index += 1) {
+          const puff = localToWorld(flash.x, flash.y, flash.angle, size * index * 0.42, Math.sin(index * 2.4) * size * 0.22);
+          graphics.fillStyle(index === 1 ? 0xfff0a0 : 0xff7138, 0.5 * alpha);
+          graphics.fillCircle(puff.x, puff.y, size * (0.5 - index * 0.07));
+        }
+      }
+    }
+  }
+
+  private drawImpactEffects(graphics: Phaser.GameObjects.Graphics): void {
+    for (const impact of this.impacts) {
+      if (!this.isVisible(impact.x, impact.y, impact.size * 3)) {
+        continue;
+      }
+
+      const progress = clamp(impact.age / impact.duration, 0, 1);
+      const alpha = 1 - progress;
+      const expansion = 0.55 + (1 - (1 - progress) * (1 - progress)) * 0.8;
+
+      if (impact.shield) {
+        graphics.fillStyle(impact.color, 0.16 * alpha);
+        graphics.fillCircle(impact.x, impact.y, impact.size * expansion);
+        graphics.lineStyle(3, impact.color, 0.85 * alpha);
+        graphics.strokeCircle(impact.x, impact.y, impact.size * expansion);
+        graphics.lineStyle(1.5, 0xffffff, 0.6 * alpha);
+        graphics.strokeCircle(impact.x, impact.y, impact.size * (0.42 + progress * 1.25));
+        this.glow?.fillStyle(impact.color, 0.24 * alpha);
+        this.glow?.fillCircle(impact.x, impact.y, impact.size * expansion);
+        continue;
+      }
+
+      graphics.fillStyle(impact.feedback === 'flame' ? 0xff7138 : impact.color, 0.28 * alpha);
+      graphics.fillCircle(impact.x, impact.y, impact.size * (0.42 + progress * 0.35));
+      if (impact.feedback === 'rail' || impact.feedback === 'energy') {
+        graphics.lineStyle(2.5, impact.color, 0.8 * alpha);
+        graphics.strokeCircle(impact.x, impact.y, impact.size * expansion);
+        const crossA = localToWorld(impact.x, impact.y, impact.angle, -impact.size, 0);
+        const crossB = localToWorld(impact.x, impact.y, impact.angle, impact.size, 0);
+        graphics.lineBetween(crossA.x, crossA.y, crossB.x, crossB.y);
+      }
+
+      for (let index = 0; index < impact.sparkAngles.length; index += 1) {
+        const angle = impact.sparkAngles[index];
+        const length = impact.size * (0.8 + index * 0.13) * expansion;
+        const tailLength = length * Math.max(0, progress - 0.22);
+        graphics.lineStyle(index % 2 === 0 ? 2 : 1.25, index % 2 === 0 ? 0xfff0a0 : impact.color, 0.82 * alpha);
+        graphics.lineBetween(
+          impact.x + Math.cos(angle) * tailLength,
+          impact.y + Math.sin(angle) * tailLength,
+          impact.x + Math.cos(angle) * length,
+          impact.y + Math.sin(angle) * length,
+        );
+      }
+    }
+  }
+
   private drawProjectiles(graphics: Phaser.GameObjects.Graphics): void {
     for (const projectile of this.projectiles) {
       if (!this.isVisible(projectile.x, projectile.y, Math.max(220, projectile.blastRadius))) {
@@ -3098,11 +3442,13 @@ export class BattleScene extends Phaser.Scene {
       graphics.strokeCircle(tank.x, tank.y, 12);
       graphics.lineBetween(tank.x - 10, tank.y - 12, tank.x, tank.y - 18);
       graphics.lineBetween(tank.x, tank.y - 18, tank.x + 10, tank.y - 12);
+      this.drawTankHitReaction(graphics, tank);
       return;
     }
 
     if (art.chassis === 'infantry') {
       this.drawInfantry(graphics, tank, art);
+      this.drawTankHitReaction(graphics, tank);
       return;
     }
 
@@ -3139,6 +3485,20 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2, 5);
     graphics.fillStyle(tank.team === 'player' ? 0xa2db7c : 0xff845f, 0.95);
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 5);
+    this.drawTankHitReaction(graphics, tank);
+  }
+
+  private drawTankHitReaction(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime): void {
+    if (tank.hitFlashMs <= 0) {
+      return;
+    }
+
+    const alpha = clamp(tank.hitFlashMs / Math.max(1, tank.hitFlashMaxMs), 0, 1);
+    const pulseRadius = tank.radius * (1.04 + (1 - alpha) * 0.24);
+    graphics.fillStyle(tank.hitFlashColor, 0.2 * alpha);
+    graphics.fillCircle(tank.x, tank.y, pulseRadius);
+    graphics.lineStyle(Math.max(2, tank.radius * 0.09), tank.hitFlashColor, 0.86 * alpha);
+    graphics.strokeCircle(tank.x, tank.y, pulseRadius);
   }
 
   /**
@@ -3506,5 +3866,8 @@ export class BattleScene extends Phaser.Scene {
       duration: 760,
       label,
     });
+    while (this.floatingTexts.length > MAX_FLOATING_TEXTS) {
+      this.floatingTexts.shift()?.label.destroy();
+    }
   }
 }
