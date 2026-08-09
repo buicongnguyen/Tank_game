@@ -14,6 +14,8 @@ interface InterfaceRoots {
 interface InterfaceOptions {
   startMusic?: () => void;
   playSfx?: (cue: TankSfxCue, intensity?: number) => void;
+  isPerformanceModeEnabled?: () => boolean;
+  setPerformanceModeEnabled?: (enabled: boolean) => void;
 }
 
 export class InterfaceController {
@@ -23,9 +25,12 @@ export class InterfaceController {
   private readonly director: GameDirector;
   private readonly startMusic?: () => void;
   private readonly playSfx?: (cue: TankSfxCue, intensity?: number) => void;
+  private readonly isPerformanceModeEnabled: () => boolean;
+  private readonly setPerformanceModeEnabled?: (enabled: boolean) => void;
   private hudSnapshot: HudSnapshot | null = null;
   private sessionSnapshot: SessionSnapshot;
-  private lastHudSignature = '';
+  private lastHudStructureSignature = '';
+  private readonly hudFields = new Map<string, HTMLElement>();
   private lastOverlaySignature = '';
   private lastIntelSignature = '';
   private selectedDifficulty: DifficultyMode = 'normal';
@@ -39,6 +44,8 @@ export class InterfaceController {
     this.director = director;
     this.startMusic = options.startMusic;
     this.playSfx = options.playSfx;
+    this.isPerformanceModeEnabled = options.isPerformanceModeEnabled ?? (() => true);
+    this.setPerformanceModeEnabled = options.setPerformanceModeEnabled;
     this.sessionSnapshot = director.getSnapshot();
 
     // delegated so the frequently re-rendered HUD markup never needs re-binding
@@ -74,12 +81,6 @@ export class InterfaceController {
   }
 
   setHud(snapshot: HudSnapshot): void {
-    const signature = JSON.stringify(snapshot);
-    if (signature === this.lastHudSignature) {
-      return;
-    }
-
-    this.lastHudSignature = signature;
     this.hudSnapshot = snapshot;
     this.renderHud();
   }
@@ -129,50 +130,116 @@ export class InterfaceController {
     this.hudRoot.dataset.phase = sessionPhase === 'paused'
       ? 'paused'
       : sessionPhase === 'playing' ? 'live' : 'standby';
-    this.hudRoot.innerHTML = `
-      <div class="hud-block hud-left tank-hud-left">
-        <div class="hud-bar hud-bar-health" role="img" aria-label="Hull integrity">
-          <span class="hud-bar-fill" style="width:${healthPercent}%"></span>
-          <span class="hud-bar-text">${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth}</span>
-        </div>
-        ${tank.shieldMax > 0 ? `
-          <div class="hud-bar hud-bar-shield" role="img" aria-label="Shield">
-            <span class="hud-bar-fill" style="width:${Math.max(0, (tank.shield / tank.shieldMax) * 100)}%"></span>
-            <span class="hud-bar-text">SHD ${Math.max(0, Math.ceil(tank.shield))}</span>
+    const structureSignature = `${tank.shieldMax > 0}|${Boolean(hud.boss)}`;
+    if (structureSignature !== this.lastHudStructureSignature || this.hudFields.size === 0) {
+      this.lastHudStructureSignature = structureSignature;
+      this.hudRoot.innerHTML = `
+        <div class="hud-block hud-left tank-hud-left">
+          <div class="hud-bar hud-bar-health" role="img" aria-label="Hull integrity">
+            <span class="hud-bar-fill" data-hud="health-fill"></span>
+            <span class="hud-bar-text" data-hud="health-text"></span>
           </div>
-        ` : ''}
-        <div class="hud-micro">
-          <span>ARM ${tank.armor.toFixed(2)}x</span>
-          <span>SPD ${Math.round(tank.speed)}</span>
-          <span class="hud-credits">$${hud.credits}</span>
-          <span>AMMO ${tank.ammo}/${tank.ammoCapacity}</span>
-          <span>RPR x${tank.repairCharges}</span>
-        </div>
-        ${hud.boss ? `
-          <div class="hud-bar hud-bar-boss ${hud.boss.exposed ? 'is-exposed' : ''}">
-            <span class="hud-bar-fill" style="width:${Math.max(0, (hud.boss.health / hud.boss.maxHealth) * 100)}%"></span>
-            <span class="hud-bar-text">${hud.boss.name}${hud.boss.exposed ? ' - Weak Point' : ''}</span>
+          ${tank.shieldMax > 0 ? `
+            <div class="hud-bar hud-bar-shield" role="img" aria-label="Shield">
+              <span class="hud-bar-fill" data-hud="shield-fill"></span>
+              <span class="hud-bar-text" data-hud="shield-text"></span>
+            </div>
+          ` : ''}
+          <div class="hud-micro">
+            <span data-hud="armor"></span>
+            <span data-hud="speed"></span>
+            <span class="hud-credits" data-hud="credits"></span>
+            <span data-hud="ammo"></span>
+            <span data-hud="repair"></span>
           </div>
-        ` : ''}
-      </div>
-      <div class="hud-block hud-top tank-hud-top">
-        <button type="button" class="hud-settings-button" data-pause aria-label="Pause and open mission info">
-          <span aria-hidden="true">II</span>
-        </button>
-      </div>
-      <div class="hud-block hud-right tank-hud-right">
-        <div class="hud-micro hud-micro-right">
-          <span>M ${hud.missionIndex}/${hud.totalMissions}</span>
-          <span>HOSTILES ${hud.enemyCount.alive}/${hud.enemyCount.total}</span>
-          <span>${hud.totalScore.toLocaleString()}</span>
+          ${hud.boss ? `
+            <div class="hud-bar hud-bar-boss" data-hud="boss">
+              <span class="hud-bar-fill" data-hud="boss-fill"></span>
+              <span class="hud-bar-text" data-hud="boss-text"></span>
+            </div>
+          ` : ''}
         </div>
-        <div class="hud-progress-line">${hud.progressText}</div>
-        <div class="cooldown-strip cooldown-strip-slim">
-          <span style="--fill:${Math.round(tank.secondaryPercent * 100)}%">${hud.weapon.label} L${hud.weapon.level}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}</span>
-          <span style="--fill:${Math.round(tank.specialPercent * 100)}%">Strike</span>
+        <div class="hud-block hud-top tank-hud-top">
+          <button type="button" class="hud-settings-button" data-pause aria-label="Pause and open mission info">
+            <span aria-hidden="true">II</span>
+          </button>
         </div>
-      </div>
-    `;
+        <div class="hud-block hud-right tank-hud-right">
+          <div class="hud-micro hud-micro-right">
+            <span data-hud="mission"></span>
+            <span data-hud="hostiles"></span>
+            <span data-hud="score"></span>
+          </div>
+          <div class="hud-progress-line" data-hud="progress"></div>
+          <div class="cooldown-strip cooldown-strip-slim">
+            <span data-hud="weapon"></span>
+            <span data-hud="special">Strike</span>
+          </div>
+        </div>
+      `;
+      this.hudFields.clear();
+      for (const element of this.hudRoot.querySelectorAll<HTMLElement>('[data-hud]')) {
+        const key = element.dataset.hud;
+        if (key) {
+          this.hudFields.set(key, element);
+        }
+      }
+    }
+
+    this.setHudWidth('health-fill', healthPercent);
+    this.setHudText('health-text', `${Math.max(0, Math.ceil(tank.health))}/${tank.maxHealth}`);
+    this.setHudWidth('shield-fill', tank.shieldMax > 0 ? Math.max(0, (tank.shield / tank.shieldMax) * 100) : 0);
+    this.setHudText('shield-text', `SHD ${Math.max(0, Math.ceil(tank.shield))}`);
+    this.setHudText('armor', `ARM ${tank.armor.toFixed(2)}x`);
+    this.setHudText('speed', `SPD ${Math.round(tank.speed)}`);
+    this.setHudText('credits', `$${hud.credits}`);
+    this.setHudText('ammo', `AMMO ${tank.ammo}/${tank.ammoCapacity}`);
+    this.setHudText('repair', `RPR x${tank.repairCharges}`);
+    this.setHudText('mission', `M ${hud.missionIndex}/${hud.totalMissions}`);
+    this.setHudText('hostiles', `HOSTILES ${hud.enemyCount.alive}/${hud.enemyCount.total}`);
+    this.setHudText('score', hud.totalScore.toLocaleString());
+    this.setHudText('progress', hud.progressText);
+    this.setHudText('weapon', `${hud.weapon.label} L${hud.weapon.level}${hud.weapon.unlockedCount > 1 ? ` ${weaponIndex}/${hud.weapon.unlockedCount}` : ''}`);
+    this.setHudText('special', 'Strike');
+    this.setHudFill('weapon', tank.secondaryPercent);
+    this.setHudFill('special', tank.specialPercent);
+
+    if (hud.boss) {
+      this.setHudWidth('boss-fill', Math.max(0, (hud.boss.health / hud.boss.maxHealth) * 100));
+      this.setHudText('boss-text', `${hud.boss.name}${hud.boss.exposed ? ' - Weak Point' : ''}`);
+      this.hudFields.get('boss')?.classList.toggle('is-exposed', hud.boss.exposed);
+    }
+  }
+
+  private setHudText(key: string, value: string): void {
+    const element = this.hudFields.get(key);
+    if (element && element.textContent !== value) {
+      element.textContent = value;
+    }
+  }
+
+  private setHudWidth(key: string, percent: number): void {
+    const element = this.hudFields.get(key);
+    if (!element) {
+      return;
+    }
+
+    const width = `${Math.round(Math.min(100, Math.max(0, percent)))}%`;
+    if (element.style.width !== width) {
+      element.style.width = width;
+    }
+  }
+
+  private setHudFill(key: string, value: number): void {
+    const element = this.hudFields.get(key);
+    if (!element) {
+      return;
+    }
+
+    const fill = `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
+    if (element.style.getPropertyValue('--fill') !== fill) {
+      element.style.setProperty('--fill', fill);
+    }
   }
 
   private renderOverlay(): void {
@@ -195,6 +262,7 @@ export class InterfaceController {
       completed: snapshot.completedMissions,
       weapon: snapshot.selectedWeapon,
       shop: live ? '' : snapshot.shop.map((entry) => `${entry.id}:${entry.level}:${entry.owned}:${entry.affordable}`),
+      performanceMode: this.isPerformanceModeEnabled(),
     });
     if (signature === this.lastOverlaySignature) {
       return;
@@ -276,6 +344,14 @@ export class InterfaceController {
         this.startMusic?.();
         this.playSfx?.('deploy', 0.9);
         this.director.continueFromMission(missionIndex);
+      });
+    }
+
+    const performanceModeToggles = this.overlayRoot.querySelectorAll<HTMLInputElement>('input[data-performance-mode]');
+    for (const toggle of performanceModeToggles) {
+      toggle.addEventListener('change', () => {
+        this.setPerformanceModeEnabled?.(toggle.checked);
+        this.renderOverlay();
       });
     }
   }
@@ -542,6 +618,19 @@ export class InterfaceController {
     `;
   }
 
+  private renderPerformanceModeToggle(): string {
+    const enabled = this.isPerformanceModeEnabled();
+    return `
+      <label class="performance-mode-option">
+        <input type="checkbox" data-performance-mode ${enabled ? 'checked' : ''}>
+        <span>
+          <strong>Performance mode ${enabled ? 'on' : 'off'}</strong>
+          <small>On by default. Disables audio and camera shake to reduce frame stalls.</small>
+        </span>
+      </label>
+    `;
+  }
+
   private renderIntel(): void {
     const snapshot = this.sessionSnapshot;
 
@@ -662,6 +751,7 @@ export class InterfaceController {
                 <li><strong>Scrap</strong> ${snapshot.scrap}</li>
               </ul>
               <p>Angle your hull at threats - rear hits hurt far more than front hits.</p>
+              ${this.renderPerformanceModeToggle()}
             </div>
           </div>
           <div class="overlay-actions">
@@ -684,6 +774,7 @@ export class InterfaceController {
             ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> every chassis is selectable for balance testing.</p>' : ''}
             ${this.renderClassSelector()}
             ${this.renderDifficultySelector()}
+            ${this.renderPerformanceModeToggle()}
             <div class="overlay-notes">
               <span>First mission: ${mission.codename}</span>
               <span>${mission.briefing}</span>

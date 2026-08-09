@@ -1054,6 +1054,44 @@ a {
   box-shadow: inset 0 0 0 1px rgba(255, 242, 196, 0.12);
 }
 
+.performance-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid rgba(125, 218, 179, 0.32);
+  border-radius: 10px;
+  background: rgba(64, 132, 101, 0.12);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+.performance-mode-option input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #7ddab3;
+}
+
+.performance-mode-option span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.performance-mode-option strong {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.performance-mode-option small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
 .failure-overlay-card {
   width: min(820px, 100%);
   max-height: calc(100% - 20px);
@@ -1882,6 +1920,24 @@ a {
 
   .menu-overlay-scroll .difficulty-button {
     padding: 6px 8px;
+  }
+
+  .menu-overlay-scroll .performance-mode-option {
+    gap: 8px;
+    padding: 5px 8px;
+  }
+
+  .menu-overlay-scroll .performance-mode-option input {
+    width: 15px;
+    height: 15px;
+  }
+
+  .menu-overlay-scroll .performance-mode-option strong {
+    font-size: 0.62rem;
+  }
+
+  .menu-overlay-scroll .performance-mode-option small {
+    font-size: 0.58rem;
   }
 
   .menu-overlay-scroll .overlay-notes {

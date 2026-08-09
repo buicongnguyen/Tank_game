@@ -465,3 +465,130 @@ Claude review focus:
 - Mobile performance was smoke-tested in a responsive in-app browser, not measured on physical hardware.
 - All normal fire inputs use the selected weapon. Vehicle damage/reload stats are still the shared base values applied before per-weapon scaling.
 - Shop state is campaign-memory only and is not persisted across page reloads or application restarts.
+
+---
+
+## Request 15: Freeze / Performance Optimization
+
+### Problem statement
+
+Long firefights could become uneven or appear to freeze, particularly on mobile hardware. The review did not find an infinite loop; it found several costs that compounded over time:
+
+- The full terrain, every destructible structure, all actors, and every effect were cleared and rebuilt as Phaser vector geometry on every frame.
+- The complete HUD DOM tree was replaced every 100 ms even when only a number or bar width changed.
+- Rapid weapons allocated filtered, mapped, and sorted collision arrays for every active projectile on every frame.
+- Short Web Audio effects created oscillator/source, filter, and gain nodes without explicitly disconnecting the completed graph.
+- Engine sound added four new AudioParam automation targets every render frame.
+- Touch devices were asking for the same antialiased 60 Hz rendering profile as desktop machines.
+
+### Detailed implementation plan
+
+#### Phase A - bound long-session audio work
+
+1. Throttle engine synthesis changes to at most one update every 80 ms unless the load changes materially or the engine must become idle immediately.
+2. Cancel the pending automation tail before scheduling a replacement target.
+3. Attach one-shot `ended` cleanup to every temporary music/SFX source and disconnect its source, filter, and gain nodes.
+4. Leave the two continuous engine oscillators connected because they are intentionally mission-long reusable nodes.
+
+Acceptance criteria:
+
+- Automatic fire and repeated explosions do not leave completed temporary nodes connected.
+- Engine pitch/load remains responsive without receiving 180-240 automation events per second.
+- Music and all combat cues remain audible.
+
+#### Phase A2 - default-on performance mode
+
+1. Add one clearly labelled `Performance mode` checkbox to the starting screen and pause panel.
+2. Enable it by default for every fresh page load.
+3. While enabled, do not create/start the Web Audio context and reject music, engine, and SFX work at the audio boundary.
+4. Guard both player-hit and explosion camera-shake calls with the same live setting.
+5. Apply changes immediately: enabling the mode suspends existing audio; disabling it resumes/starts audio and allows future camera shake.
+6. Keep this preference separate from difficulty, campaign progression, and gameplay balance.
+
+Acceptance criteria:
+
+- The checkbox is checked and reports `Performance mode on` on first load.
+- Starting a campaign in the default state produces no audio or camera shake.
+- Turning the checkbox off from the menu or pause panel enables audio without restarting the campaign.
+- Turning it back on suspends audio and prevents subsequent shake effects.
+
+#### Phase B - make the HUD incremental
+
+1. Build the live HUD structure once per structural variant: shield/no shield and boss/no boss.
+2. Cache every live HUD element by a `data-hud` key.
+3. Update text, CSS fill variables, widths, and boss state only when a field changes.
+4. Cache the three mobile action-caption nodes instead of querying the touch-control subtree on every HUD tick.
+5. Keep the existing 100 ms information cadence so cooldowns still look responsive.
+
+Acceptance criteria:
+
+- The HUD root is not replaced during normal gameplay.
+- Pause control delegation still works after a structural HUD rebuild.
+- Health, shield, ammunition, cooldowns, weapon, score, and boss exposure remain current.
+
+#### Phase C - cache static battlefield geometry
+
+1. Split Phaser graphics into four ordered layers:
+   - depth 0: cached terrain;
+   - depth 1: dynamic objective underlay, escort, and interactive pickups/pads/mines;
+   - depth 2: cached destructible buildings and cover;
+   - depth 3: tanks, cash, projectiles, impacts, and explosions.
+2. Draw the full world-space terrain once when a mission begins.
+3. Redraw structural cover only when it takes damage or is destroyed.
+4. Keep pulsing repair pads, mines, and armory boxes on the dynamic underlay.
+5. Preserve additive explosion glow at depth 6 and text overlays at their existing higher depths.
+
+Acceptance criteria:
+
+- Camera travel never reveals an undrawn part of the map.
+- Cover health/destroyed state updates on the next frame.
+- Layer order still reads as objectives/escort, cover, actors, effects.
+- Terrain and structural cover no longer generate new vector command lists every frame.
+
+#### Phase D - reduce hot-loop allocation and mobile GPU load
+
+1. Reuse the tank collision list instead of allocating a new player/enemy array each frame.
+2. Reuse a projectile hit buffer and populate it in one pass instead of chained `filter/map/filter/sort` calls.
+3. Find homing targets in a single squared-distance pass without arrays or repeated square roots.
+4. Use squared-distance and direct loops for circle/cover, capture-zone, repair-pad, and mine checks.
+5. Use a mobile renderer profile: 45 Hz target, 30 Hz minimum, no antialiasing, rounded pixels, and high-performance GPU preference. Desktop retains a 60 Hz antialiased profile.
+
+Acceptance criteria:
+
+- Swept projectile collision and piercing order are unchanged.
+- Multi-hit rail/projectile behavior still processes nearest impacts first.
+- Desktop quality is unchanged.
+- Touch hardware receives the lower-cost render profile from startup.
+
+#### Phase E - lightweight diagnostics and regression verification
+
+1. Aggregate frame count, maximum frame time, long frames over 34 ms, and active enemy/projectile/explosion counts in three-second windows.
+2. Publish the sample through body data attributes (`data-game-fps`, `data-game-frame-max`, `data-game-long-frames`, `data-game-entities`) so a browser/device test can read it without a visible debug overlay.
+3. Ignore hidden-tab and suspension-sized deltas so background throttling does not pollute the sample.
+4. Run TypeScript/Vite production build, diff checks, desktop gameplay, mobile gameplay, HUD mutation, projectile, audio, pause, and mission-start regression checks.
+
+### Implementation status
+
+All phases above, including the default-on performance-mode control, were implemented in the current performance pass. The final verification and deployment results are recorded in the latest Codex handoff response and Git history.
+
+### Performance-pass verification
+
+- `npm run build` passed TypeScript and Vite production compilation.
+- `git diff --check` passed.
+- The start page still fits the complete menu and fixed Start Campaign footer at the tested 1267-pixel-wide browser viewport after adding the new setting.
+- Performance mode appeared checked on first load and reported `Performance mode on`.
+- Unchecking it rebuilt the label as `Performance mode off`; the same live control appeared in the pause panel and the mission resumed successfully.
+- Incremental HUD values continued to report health, shield, ammunition, active weapon, cooldowns, score, and hostiles.
+- Cached terrain, open/sealed houses, barrels, crates, tank art, pickups, and touch controls rendered in the correct visible order.
+- A sustained four-window Machine Gun test produced no sampled frames above 34 ms. The four samples reported maximum frame intervals of 32, 23, 23, and 25 ms; active projectile counts rose and returned to zero normally.
+- A separate full-effects sample with performance mode disabled reported 58 FPS, an 18 ms maximum frame interval, and zero sampled frames above 34 ms.
+- The browser was an emulated/coarse-pointer environment. Physical Android profiling remains the final device-specific check.
+
+### Claude review focus
+
+- Profile `data-game-fps`, `data-game-frame-max`, and `data-game-long-frames` on a physical mid-range Android device during sustained Machine Gun and explosion activity.
+- Confirm 45 Hz feels preferable to an unstable 60 Hz on that hardware; the target is isolated in `src/main.ts` if tuning is needed.
+- Inspect the static cover layer after every structure type takes damage, especially barrels, concrete, houses, and rock walls.
+- Confirm Web Audio cues remain complete on Safari/iOS after their source graphs disconnect on `ended`.
+- Confirm the default-on performance mode matches player expectations; audio and shake can be restored together from the menu or pause screen.
+- Consider Phaser texture atlases for tank/cover art only if physical-device profiling still shows rendering as the dominant cost after this pass.

@@ -7,6 +7,9 @@ const BPM = 120;
 const STEP_SECONDS = 60 / BPM / 2;
 const LOOKAHEAD_SECONDS = 0.22;
 const SCHEDULE_INTERVAL_MS = 80;
+/** Engine synthesis does not need a new automation curve on every render frame. */
+const ENGINE_UPDATE_INTERVAL_SECONDS = 0.08;
+const ENGINE_LOAD_EPSILON = 0.025;
 
 const LEAD_PATTERN = [
   'E4', null, 'G4', null, 'A4', null, 'B4', null,
@@ -74,6 +77,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export class BattleMusic {
+  private enabled = true;
   private context?: AudioContext;
   private master?: GainNode;
   private effects?: GainNode;
@@ -84,9 +88,39 @@ export class BattleMusic {
   private schedulerId?: number;
   private nextStepTime = 0;
   private stepIndex = 0;
+  private lastEngineLoad = -1;
+  private lastEngineUpdateTime = -Infinity;
   private readonly lastSfxTimes = new Map<TankSfxCue, number>();
 
+  setEnabled(enabled: boolean): void {
+    if (enabled === this.enabled) {
+      return;
+    }
+
+    this.enabled = enabled;
+    this.lastEngineLoad = -1;
+    this.lastEngineUpdateTime = -Infinity;
+    const context = this.context;
+    const master = this.master;
+    if (!context || !master) {
+      return;
+    }
+
+    if (enabled) {
+      master.gain.setValueAtTime(0.18, context.currentTime);
+      void context.resume().catch(() => undefined);
+    } else {
+      this.engineGain?.gain.setValueAtTime(0.0001, context.currentTime);
+      master.gain.setValueAtTime(0.0001, context.currentTime);
+      void context.suspend().catch(() => undefined);
+    }
+  }
+
   start(): void {
+    if (!this.enabled) {
+      return;
+    }
+
     const context = this.ensureContext();
     if (!context) {
       return;
@@ -134,6 +168,10 @@ export class BattleMusic {
   }
 
   playSfx(cue: TankSfxCue, intensity = 1): void {
+    if (!this.enabled) {
+      return;
+    }
+
     const context = this.ensureContext();
     if (!context) {
       return;
@@ -232,17 +270,44 @@ export class BattleMusic {
   }
 
   setEngineLoad(load: number): void {
+    if (!this.enabled) {
+      return;
+    }
+
     if (!this.context || !this.engineGain || !this.engineFilter || !this.engineOscillators) {
       return;
     }
 
     const time = this.context.currentTime;
     const normalized = clamp(load, 0, 1);
+    const loadChanged = Math.abs(normalized - this.lastEngineLoad) >= ENGINE_LOAD_EPSILON;
+    const forceIdle = normalized === 0 && this.lastEngineLoad !== 0;
+    if (!forceIdle) {
+      if (!loadChanged || time - this.lastEngineUpdateTime < ENGINE_UPDATE_INTERVAL_SECONDS) {
+        return;
+      }
+    }
+
+    this.lastEngineLoad = normalized;
+    this.lastEngineUpdateTime = time;
     const gain = normalized < 0.04 ? 0.0001 : 0.012 + normalized * 0.035;
-    this.engineGain.gain.setTargetAtTime(gain, time, 0.08);
-    this.engineFilter.frequency.setTargetAtTime(130 + normalized * 250, time, 0.12);
-    this.engineOscillators[0].frequency.setTargetAtTime(35 + normalized * 38, time, 0.11);
-    this.engineOscillators[1].frequency.setTargetAtTime(52 + normalized * 54, time, 0.1);
+    this.smoothParameter(this.engineGain.gain, gain, time, 0.08);
+    this.smoothParameter(this.engineFilter.frequency, 130 + normalized * 250, time, 0.12);
+    this.smoothParameter(this.engineOscillators[0].frequency, 35 + normalized * 38, time, 0.11);
+    this.smoothParameter(this.engineOscillators[1].frequency, 52 + normalized * 54, time, 0.1);
+  }
+
+  private smoothParameter(parameter: AudioParam, value: number, time: number, timeConstant: number): void {
+    // Cancel pending ramps before adding the next one. This keeps the Web Audio
+    // automation timeline bounded during long driving sessions.
+    if (typeof parameter.cancelAndHoldAtTime === 'function') {
+      parameter.cancelAndHoldAtTime(time);
+    } else {
+      const currentValue = parameter.value;
+      parameter.cancelScheduledValues(time);
+      parameter.setValueAtTime(currentValue, time);
+    }
+    parameter.setTargetAtTime(value, time, timeConstant);
   }
 
   private schedule(): void {
@@ -309,6 +374,7 @@ export class BattleMusic {
     oscillator.connect(filter);
     filter.connect(gain);
     gain.connect(this.master);
+    this.disconnectWhenEnded(oscillator, oscillator, filter, gain);
     oscillator.start(time);
     oscillator.stop(time + duration + 0.04);
   }
@@ -329,6 +395,7 @@ export class BattleMusic {
 
     oscillator.connect(gain);
     gain.connect(this.master);
+    this.disconnectWhenEnded(oscillator, oscillator, gain);
     oscillator.start(time);
     oscillator.stop(time + 0.2);
   }
@@ -366,6 +433,7 @@ export class BattleMusic {
     source.connect(filter);
     filter.connect(gain);
     gain.connect(this.master);
+    this.disconnectWhenEnded(source, source, filter, gain);
     source.start(time);
     source.stop(time + duration + 0.02);
   }
@@ -429,6 +497,7 @@ export class BattleMusic {
     oscillator.connect(filter);
     filter.connect(gain);
     gain.connect(this.effects);
+    this.disconnectWhenEnded(oscillator, oscillator, filter, gain);
     oscillator.start(time);
     oscillator.stop(time + duration + 0.04);
   }
@@ -457,8 +526,21 @@ export class BattleMusic {
     source.connect(filter);
     filter.connect(gain);
     gain.connect(this.effects);
+    this.disconnectWhenEnded(source, source, filter, gain);
     source.start(time);
     source.stop(time + duration + 0.03);
+  }
+
+  private disconnectWhenEnded(source: AudioScheduledSourceNode, ...nodes: AudioNode[]): void {
+    source.addEventListener('ended', () => {
+      for (const node of nodes) {
+        try {
+          node.disconnect();
+        } catch {
+          // A browser may already have detached a completed source node.
+        }
+      }
+    }, { once: true });
   }
 
   private createNoiseBuffer(context: AudioContext): AudioBuffer {

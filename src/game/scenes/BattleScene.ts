@@ -99,6 +99,11 @@ interface ProjectileRuntime {
   feedback: WeaponFeedbackStyle;
 }
 
+interface ProjectileHitCandidate {
+  enemy: TankRuntime;
+  hitTime: number;
+}
+
 interface CoverRuntime {
   id: string;
   kind: CoverConfig['kind'];
@@ -377,7 +382,9 @@ function approachAngle(current: number, target: number, amount: number): number 
 function circleRectOverlap(cx: number, cy: number, radius: number, rect: CoverRuntime): boolean {
   const nearestX = clamp(cx, rect.x - rect.width * 0.5, rect.x + rect.width * 0.5);
   const nearestY = clamp(cy, rect.y - rect.height * 0.5, rect.y + rect.height * 0.5);
-  return Phaser.Math.Distance.Between(cx, cy, nearestX, nearestY) <= radius;
+  const dx = cx - nearestX;
+  const dy = cy - nearestY;
+  return dx * dx + dy * dy <= radius * radius;
 }
 
 function pointInsideCover(x: number, y: number, cover: CoverRuntime, inset = 0): boolean {
@@ -518,6 +525,10 @@ export class BattleScene extends Phaser.Scene {
   private readonly onHud: (snapshot: HudSnapshot) => void;
   private readonly gamepad: VirtualGamepad;
   private readonly audio?: BattleMusic;
+  private readonly effectsEnabled: () => boolean;
+  private terrainGraphics?: Phaser.GameObjects.Graphics;
+  private underlayGraphics?: Phaser.GameObjects.Graphics;
+  private coverGraphics?: Phaser.GameObjects.Graphics;
   private graphics?: Phaser.GameObjects.Graphics;
   /** Separate additive layer so blasts glow instead of just painting over. */
   private glow?: Phaser.GameObjects.Graphics;
@@ -564,22 +575,34 @@ export class BattleScene extends Phaser.Scene {
    */
   private aimMode: 'point' | 'heading' = 'point';
   private aimHeading = 0;
+  private staticLayerDirty = true;
+  private readonly projectileHitBuffer: ProjectileHitCandidate[] = [];
+  private readonly collisionTanks: TankRuntime[] = [];
+  private performanceElapsed = 0;
+  private performanceFrames = 0;
+  private performanceLongFrames = 0;
+  private performanceMaxFrame = 0;
 
   constructor(
     director: GameDirector,
     onHud: (snapshot: HudSnapshot) => void,
     gamepad: VirtualGamepad,
     audio?: BattleMusic,
+    effectsEnabled: () => boolean = () => true,
   ) {
     super('battle-scene');
     this.director = director;
     this.onHud = onHud;
     this.gamepad = gamepad;
     this.audio = audio;
+    this.effectsEnabled = effectsEnabled;
   }
 
   create(): void {
-    this.graphics = this.add.graphics();
+    this.terrainGraphics = this.add.graphics().setDepth(0);
+    this.underlayGraphics = this.add.graphics().setDepth(1);
+    this.coverGraphics = this.add.graphics().setDepth(2);
+    this.graphics = this.add.graphics().setDepth(3);
     this.glow = this.add.graphics();
     this.glow.setBlendMode(Phaser.BlendModes.ADD);
     this.glow.setDepth(6);
@@ -641,6 +664,7 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
+    this.updatePerformanceDiagnostics(delta);
     const dt = Math.min(delta, 40) / 1000;
     this.missionElapsed += delta;
     this.secondaryTimer = Math.max(0, this.secondaryTimer - delta);
@@ -692,6 +716,11 @@ export class BattleScene extends Phaser.Scene {
     this.shieldQuietMs = 0;
     this.playerHitShakeCooldownMs = 0;
     this.worldShakeCooldownMs = 0;
+    this.staticLayerDirty = true;
+    this.performanceElapsed = 0;
+    this.performanceFrames = 0;
+    this.performanceLongFrames = 0;
+    this.performanceMaxFrame = 0;
     for (const text of this.floatingTexts) {
       text.label.destroy();
     }
@@ -1134,7 +1163,14 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const tanks = [this.player, ...this.enemies.filter((enemy) => enemy.alive)];
+    const tanks = this.collisionTanks;
+    tanks.length = 0;
+    tanks.push(this.player);
+    for (const enemy of this.enemies) {
+      if (enemy.alive) {
+        tanks.push(enemy);
+      }
+    }
     for (let firstIndex = 0; firstIndex < tanks.length; firstIndex += 1) {
       for (let secondIndex = firstIndex + 1; secondIndex < tanks.length; secondIndex += 1) {
         const first = tanks[firstIndex];
@@ -1339,24 +1375,40 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (projectile.team === 'player') {
-        const targets = this.enemies
-          .filter((enemy) => enemy.alive && !projectile.hitTankIds.includes(enemy.id))
-          .map((enemy) => ({
-            enemy,
-            hitTime: segmentPointHitTime(
-              projectile.previousX,
-              projectile.previousY,
-              projectile.x,
-              projectile.y,
-              enemy.x,
-              enemy.y,
-              enemy.radius + projectile.radius,
-            ),
-          }))
-          .filter((candidate): candidate is { enemy: TankRuntime; hitTime: number } => candidate.hitTime !== null)
-          .sort((a, b) => a.hitTime - b.hitTime);
+        let hitCount = 0;
+        for (const enemy of this.enemies) {
+          if (!enemy.alive || projectile.hitTankIds.includes(enemy.id)) {
+            continue;
+          }
+          const hitTime = segmentPointHitTime(
+            projectile.previousX,
+            projectile.previousY,
+            projectile.x,
+            projectile.y,
+            enemy.x,
+            enemy.y,
+            enemy.radius + projectile.radius,
+          );
+          if (hitTime === null) {
+            continue;
+          }
 
-        for (const { enemy, hitTime } of targets) {
+          const candidate = this.projectileHitBuffer[hitCount];
+          if (candidate) {
+            candidate.enemy = enemy;
+            candidate.hitTime = hitTime;
+          } else {
+            this.projectileHitBuffer.push({ enemy, hitTime });
+          }
+          hitCount += 1;
+        }
+        this.projectileHitBuffer.length = hitCount;
+        if (hitCount > 1) {
+          this.projectileHitBuffer.sort((a, b) => a.hitTime - b.hitTime);
+        }
+
+        for (let hitIndex = 0; hitIndex < hitCount; hitIndex += 1) {
+          const { enemy, hitTime } = this.projectileHitBuffer[hitIndex];
           if (!enemy.alive) {
             continue;
           }
@@ -1436,18 +1488,27 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private steerHomingProjectile(projectile: ProjectileRuntime, dt: number): void {
-    const candidates = projectile.team === 'player'
-      ? this.enemies.filter((enemy) => enemy.alive)
-      : this.player ? [this.player] : [];
-    if (candidates.length === 0) {
+    let target: TankRuntime | undefined;
+    let nearestDistanceSquared = Infinity;
+    if (projectile.team === 'player') {
+      for (const enemy of this.enemies) {
+        if (!enemy.alive) {
+          continue;
+        }
+        const dx = enemy.x - projectile.x;
+        const dy = enemy.y - projectile.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < nearestDistanceSquared) {
+          target = enemy;
+          nearestDistanceSquared = distanceSquared;
+        }
+      }
+    } else if (this.player?.alive) {
+      target = this.player;
+    }
+    if (!target) {
       return;
     }
-
-    const target = candidates.reduce((best, candidate) => {
-      const bestDistance = Phaser.Math.Distance.Between(projectile.x, projectile.y, best.x, best.y);
-      const distance = Phaser.Math.Distance.Between(projectile.x, projectile.y, candidate.x, candidate.y);
-      return distance < bestDistance ? candidate : best;
-    }, candidates[0]);
 
     const speed = Math.hypot(projectile.vx, projectile.vy);
     const desired = Math.atan2(target.y - projectile.y, target.x - projectile.x);
@@ -1536,6 +1597,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     cover.health = Math.max(0, cover.health - damage);
+    this.staticLayerDirty = true;
     if (cover.health <= 0) {
       this.destroyCover(cover, sourceTeam, damage);
     }
@@ -1549,6 +1611,7 @@ export class BattleScene extends Phaser.Scene {
     cover.health = 0;
     cover.solid = false;
     cover.spent = true;
+    this.staticLayerDirty = true;
     this.clearShelter(cover.id);
 
     if (cover.kind === 'barrel') {
@@ -1671,8 +1734,19 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      const playerInside = Phaser.Math.Distance.Between(player.x, player.y, zone.x, zone.y) < zone.radius;
-      const enemyInside = this.enemies.some((enemy) => enemy.alive && Phaser.Math.Distance.Between(enemy.x, enemy.y, zone.x, zone.y) < zone.radius);
+      const playerDx = player.x - zone.x;
+      const playerDy = player.y - zone.y;
+      const radiusSquared = zone.radius * zone.radius;
+      const playerInside = playerDx * playerDx + playerDy * playerDy < radiusSquared;
+      let enemyInside = false;
+      for (const enemy of this.enemies) {
+        const enemyDx = enemy.x - zone.x;
+        const enemyDy = enemy.y - zone.y;
+        if (enemy.alive && enemyDx * enemyDx + enemyDy * enemyDy < radiusSquared) {
+          enemyInside = true;
+          break;
+        }
+      }
       const previousProgress = zone.progress;
       if (playerInside && !enemyInside) {
         zone.progress = Math.min(1, zone.progress + dt * 0.22);
@@ -1686,8 +1760,10 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private updateRepairPads(player: TankRuntime, stats: TankStats, dt: number): void {
-    const repairPads = this.covers.filter((cover) => cover.kind === 'repair' && !cover.spent);
-    for (const pad of repairPads) {
+    for (const pad of this.covers) {
+      if (pad.kind !== 'repair' || pad.spent) {
+        continue;
+      }
       if (!circleRectOverlap(player.x, player.y, player.radius, pad)) {
         continue;
       }
@@ -1717,13 +1793,31 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private updateMines(player: TankRuntime): void {
-    const targets = [player, ...this.enemies.filter((enemy) => enemy.alive)];
     for (const mine of this.covers) {
       if (mine.kind !== 'mine' || mine.spent || mine.health <= 0) {
         continue;
       }
 
-      const target = targets.find((tank) => Phaser.Math.Distance.Between(tank.x, tank.y, mine.x, mine.y) < tank.radius + 24);
+      let target: TankRuntime | undefined;
+      const playerDx = player.x - mine.x;
+      const playerDy = player.y - mine.y;
+      const playerTriggerRadius = player.radius + 24;
+      if (playerDx * playerDx + playerDy * playerDy < playerTriggerRadius * playerTriggerRadius) {
+        target = player;
+      } else {
+        for (const enemy of this.enemies) {
+          if (!enemy.alive) {
+            continue;
+          }
+          const dx = enemy.x - mine.x;
+          const dy = enemy.y - mine.y;
+          const triggerRadius = enemy.radius + 24;
+          if (dx * dx + dy * dy < triggerRadius * triggerRadius) {
+            target = enemy;
+            break;
+          }
+        }
+      }
       if (!target) {
         continue;
       }
@@ -2225,7 +2319,7 @@ export class BattleScene extends Phaser.Scene {
       shieldHit ? 0x7cf6ff : target.team === 'player' ? 0xff845f : 0xf0d78b,
     );
 
-    if (target.team === 'player' && this.playerHitShakeCooldownMs <= 0 && applied >= 3 && this.cameras.main) {
+    if (this.effectsEnabled() && target.team === 'player' && this.playerHitShakeCooldownMs <= 0 && applied >= 3 && this.cameras.main) {
       const shake = clamp(profile.cameraShake + applied / 45000, 0.00045, 0.0048);
       this.cameras.main.shake(55, shake);
       this.playerHitShakeCooldownMs = PLAYER_HIT_SHAKE_COOLDOWN_MS;
@@ -2408,7 +2502,7 @@ export class BattleScene extends Phaser.Scene {
       this.explosions.splice(0, this.explosions.length - MAX_EXPLOSIONS);
     }
     this.playSpatialSfx(radius >= 100 ? 'explosion' : 'impact', x, y, radius >= 100 ? 1 : 0.72);
-    if (this.cameras.main && this.worldShakeCooldownMs <= 0) {
+    if (this.effectsEnabled() && this.cameras.main && this.worldShakeCooldownMs <= 0) {
       this.cameras.main.shake(big ? 130 : 80, clamp(radius / (big ? 5200 : 8000), 0.003, 0.018));
       this.worldShakeCooldownMs = WORLD_SHAKE_COOLDOWN_MS;
     }
@@ -2648,23 +2742,69 @@ export class BattleScene extends Phaser.Scene {
     return 'Expose the weak point, then fire';
   }
 
-  private render(): void {
-    const graphics = this.graphics;
-    if (!graphics) {
+  private updatePerformanceDiagnostics(delta: number): void {
+    if (document.visibilityState === 'hidden' || delta <= 0 || delta > 1000) {
       return;
     }
 
-    graphics.clear();
-    this.glow?.clear();
+    this.performanceElapsed += delta;
+    this.performanceFrames += 1;
+    this.performanceMaxFrame = Math.max(this.performanceMaxFrame, delta);
+    if (delta > 34) {
+      this.performanceLongFrames += 1;
+    }
+
+    if (this.performanceElapsed < 3000) {
+      return;
+    }
+
+    let livingEnemies = 0;
+    for (const enemy of this.enemies) {
+      if (enemy.alive) {
+        livingEnemies += 1;
+      }
+    }
+    document.body.dataset.gameFps = String(Math.round(this.performanceFrames * 1000 / this.performanceElapsed));
+    document.body.dataset.gameFrameMax = String(Math.round(this.performanceMaxFrame));
+    document.body.dataset.gameLongFrames = String(this.performanceLongFrames);
+    document.body.dataset.gameEntities = `${livingEnemies}/${this.projectiles.length}/${this.explosions.length}`;
+
+    this.performanceElapsed = 0;
+    this.performanceFrames = 0;
+    this.performanceLongFrames = 0;
+    this.performanceMaxFrame = 0;
+  }
+
+  private render(): void {
+    const graphics = this.graphics;
+    const terrainGraphics = this.terrainGraphics;
+    const underlayGraphics = this.underlayGraphics;
+    const coverGraphics = this.coverGraphics;
+    if (!graphics || !terrainGraphics || !underlayGraphics || !coverGraphics) {
+      return;
+    }
+
     const mission = this.mission ?? this.snapshot?.currentMission;
     if (!mission) {
       return;
     }
 
-    this.drawTerrain(graphics, mission);
-    this.drawCaptureZones(graphics);
-    this.drawEscort(graphics);
-    this.drawCovers(graphics);
+    if (this.staticLayerDirty) {
+      terrainGraphics.clear();
+      coverGraphics.clear();
+      this.drawTerrain(terrainGraphics, mission);
+      this.drawCovers(coverGraphics, false);
+      this.staticLayerDirty = false;
+    }
+
+    underlayGraphics.clear();
+    this.drawExitLane(underlayGraphics, mission);
+    this.drawCaptureZones(underlayGraphics);
+    this.drawEscort(underlayGraphics);
+    this.drawCovers(underlayGraphics, true);
+
+    graphics.clear();
+    this.glow?.clear();
     this.drawTanks(graphics);
     this.drawPickups(graphics);
     this.syncPickupLabels();
@@ -2683,11 +2823,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawTerrain(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
-    const view = this.cameras.main.worldView;
-    const left = clamp(view.left - 80, 0, mission.worldWidth);
-    const top = clamp(view.top - 80, 0, mission.worldHeight);
-    const right = clamp(view.right + 80, 0, mission.worldWidth);
-    const bottom = clamp(view.bottom + 80, 0, mission.worldHeight);
+    // Terrain is world-space and immutable during a mission. Drawing the whole
+    // map once lets Phaser reuse the geometry while the camera moves.
+    const left = 0;
+    const top = 0;
+    const right = mission.worldWidth;
+    const bottom = mission.worldHeight;
     graphics.fillStyle(mission.palette.ground, 1);
     graphics.fillRect(left, top, right - left, bottom - top);
     graphics.fillStyle(mission.palette.shadow, 0.28);
@@ -2705,9 +2846,6 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    if (mission.kind === 'assault' && mission.exitX) {
-      this.drawExitLane(graphics, mission);
-    }
   }
 
   private drawExitLane(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
@@ -2787,9 +2925,13 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillRect(this.escort.x - 34, this.escort.y - 31, 68 * clamp(this.escort.health / this.escort.maxHealth, 0, 1), 6);
   }
 
-  private drawCovers(graphics: Phaser.GameObjects.Graphics): void {
+  private drawCovers(graphics: Phaser.GameObjects.Graphics, interactiveOnly: boolean): void {
     for (const cover of this.covers) {
-      if (cover.health <= 0 || cover.spent || !this.isVisible(cover.x, cover.y, Math.max(cover.width, cover.height) * 0.6 + 24)) {
+      const interactive = cover.kind === 'repair' || cover.kind === 'mine' || cover.kind === 'armory';
+      if (interactive !== interactiveOnly || cover.health <= 0 || cover.spent) {
+        continue;
+      }
+      if (interactive && !this.isVisible(cover.x, cover.y, Math.max(cover.width, cover.height) * 0.6 + 24)) {
         continue;
       }
 

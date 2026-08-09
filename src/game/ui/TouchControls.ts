@@ -37,6 +37,9 @@ export class TouchControlsOverlay {
   private readonly specialButton: HTMLButtonElement | null;
   private readonly repairButton: HTMLButtonElement | null;
   private readonly swapButton: HTMLButtonElement | null;
+  private readonly specialDetail: HTMLElement | null;
+  private readonly repairDetail: HTMLElement | null;
+  private readonly swapDetail: HTMLElement | null;
   /**
    * Strict test: the primary pointer must actually be a finger. A touch-capable
    * laptop reports `hover: hover` / `pointer: fine`, so it stays on the desktop
@@ -119,6 +122,9 @@ export class TouchControlsOverlay {
     this.specialButton = this.root.querySelector<HTMLButtonElement>('button[data-action="special"]');
     this.repairButton = this.root.querySelector<HTMLButtonElement>('button[data-action="repair"]');
     this.swapButton = this.root.querySelector<HTMLButtonElement>('button[data-action="switchWeapon"]');
+    this.specialDetail = this.specialButton?.querySelector<HTMLElement>('[data-special-detail]') ?? null;
+    this.repairDetail = this.repairButton?.querySelector<HTMLElement>('[data-repair-detail]') ?? null;
+    this.swapDetail = this.swapButton?.querySelector<HTMLElement>('[data-swap-detail]') ?? null;
 
     this.bindButtons();
     window.addEventListener('resize', this.syncVisibility);
@@ -131,27 +137,23 @@ export class TouchControlsOverlay {
   }
 
   setHud(snapshot: HudSnapshot): void {
-    const specialDetail = this.specialButton?.querySelector<HTMLElement>('[data-special-detail]');
-    const repairDetail = this.repairButton?.querySelector<HTMLElement>('[data-repair-detail]');
-
-    if (this.specialButton && specialDetail) {
+    if (this.specialButton && this.specialDetail) {
       const ready = snapshot.tank.specialPercent >= 1;
-      specialDetail.textContent = ready ? 'Ready' : `${Math.round(snapshot.tank.specialPercent * 100)}%`;
+      this.specialDetail.textContent = ready ? 'Ready' : `${Math.round(snapshot.tank.specialPercent * 100)}%`;
       this.specialButton.dataset.cooldown = ready ? 'false' : 'true';
     }
 
-    if (this.repairButton && repairDetail) {
-      repairDetail.textContent = `x${snapshot.tank.repairCharges}`;
+    if (this.repairButton && this.repairDetail) {
+      this.repairDetail.textContent = `x${snapshot.tank.repairCharges}`;
       this.repairButton.dataset.cooldown = snapshot.tank.repairCharges > 0 ? 'false' : 'true';
     }
 
     // the swap button only earns its space once a second weapon exists
     if (this.swapButton) {
-      const swapDetail = this.swapButton.querySelector<HTMLElement>('[data-swap-detail]');
       this.swapButton.hidden = snapshot.weapon.unlockedCount <= 1;
       this.swapButton.setAttribute('aria-label', `Swap weapon. Active: ${snapshot.weapon.label} level ${snapshot.weapon.level}`);
-      if (swapDetail) {
-        swapDetail.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level} · ${snapshot.tank.ammo}/${snapshot.tank.ammoCapacity}`;
+      if (this.swapDetail) {
+        this.swapDetail.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level} · ${snapshot.tank.ammo}/${snapshot.tank.ammoCapacity}`;
       }
     }
   }

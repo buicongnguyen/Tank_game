@@ -47,6 +47,8 @@ if (!hudRoot || !overlayRoot || !intelRoot || !touchControlsRoot) {
 const director = new GameDirector();
 const virtualGamepad = new VirtualGamepad();
 const battleMusic = new BattleMusic();
+const performanceSettings = { enabled: true };
+battleMusic.setEnabled(false);
 let touchControls: TouchControlsOverlay | undefined;
 const ui = new InterfaceController(
   { hudRoot, overlayRoot, intelRoot },
@@ -54,9 +56,21 @@ const ui = new InterfaceController(
   {
     startMusic: () => battleMusic.start(),
     playSfx: (cue, intensity) => battleMusic.playSfx(cue, intensity),
+    isPerformanceModeEnabled: () => performanceSettings.enabled,
+    setPerformanceModeEnabled: (enabled) => {
+      performanceSettings.enabled = enabled;
+      battleMusic.setEnabled(!enabled);
+      if (!enabled) {
+        battleMusic.start();
+      }
+    },
   },
 );
 touchControls = new TouchControlsOverlay(touchControlsRoot, director, virtualGamepad);
+
+const touchOptimizedRenderer = window.matchMedia('(hover: none) and (pointer: coarse)').matches
+  || (navigator.maxTouchPoints > 0 && window.innerWidth <= 900);
+document.body.dataset.renderProfile = touchOptimizedRenderer ? 'mobile' : 'desktop';
 
 new Phaser.Game({
   type: Phaser.AUTO,
@@ -76,6 +90,13 @@ new Phaser.Game({
       debug: false,
     },
   },
+  fps: {
+    // A stable 45 Hz is smoother on phones than repeatedly missing a 60 Hz
+    // budget while still keeping desktop motion at the native 60 Hz target.
+    target: touchOptimizedRenderer ? 45 : 60,
+    min: 30,
+    smoothStep: true,
+  },
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -84,10 +105,12 @@ new Phaser.Game({
   },
   render: {
     pixelArt: false,
-    antialias: true,
+    antialias: !touchOptimizedRenderer,
+    roundPixels: touchOptimizedRenderer,
+    powerPreference: 'high-performance',
   },
   scene: [new BattleScene(director, (snapshot) => {
     ui.setHud(snapshot);
     touchControls?.setHud(snapshot);
-  }, virtualGamepad, battleMusic)],
+  }, virtualGamepad, battleMusic, () => !performanceSettings.enabled)],
 });
