@@ -3091,3 +3091,429 @@ a {
     background: none;
   }
 }
+
+/* ---- Mobile overlay fit ------------------------------------------------- */
+
+.pause-control-mobile {
+  display: none;
+}
+
+/* On larger screens these wrappers are layout-neutral. Mobile turns them
+   into the only scrollable area so the primary actions stay reachable. */
+.overlay-scroll-region {
+  display: contents;
+}
+
+@media (max-width: 900px) {
+  .pause-card,
+  .shop-overlay-card,
+  .debrief-card,
+  .failure-overlay-card,
+  .victory-card {
+    width: min(760px, calc(100% - 12px));
+    height: 100%;
+    max-height: 100%;
+    padding: 0;
+    gap: 0;
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .overlay-scroll-region {
+    min-height: 0;
+    padding: 14px;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .overlay-footer-actions {
+    position: static;
+    bottom: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid rgba(255, 242, 196, 0.16);
+    background: linear-gradient(180deg, rgba(8, 13, 10, 0.9), var(--panel-strong));
+    box-shadow: 0 -12px 24px rgba(5, 8, 5, 0.24);
+  }
+
+  .overlay-footer-actions .action-button {
+    min-width: 0;
+    min-height: 42px;
+    padding: 8px 10px;
+    font-size: 0.68rem;
+  }
+
+  .menu-overlay-scroll {
+    padding: 12px 12px 8px;
+    gap: 8px;
+  }
+
+  .menu-overlay-scroll h1 {
+    font-size: 1.7rem;
+    line-height: 0.95;
+  }
+
+  .menu-overlay-scroll > p:not(.test-mode-banner) {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+
+  .menu-overlay-scroll .test-mode-banner {
+    padding: 6px 8px;
+    font-size: 0.66rem;
+  }
+
+  .menu-overlay-scroll .class-panel,
+  .menu-overlay-scroll .difficulty-panel {
+    gap: 6px;
+  }
+
+  .menu-overlay-scroll .class-panel > span,
+  .menu-overlay-scroll .difficulty-panel > span {
+    font-size: 0.62rem;
+    line-height: 1.2;
+  }
+
+  .menu-overlay-scroll .test-mode-note {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 0.6rem;
+    line-height: 1.2;
+  }
+
+  .menu-overlay-scroll .class-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .menu-overlay-scroll .class-card {
+    min-height: 50px;
+    padding: 7px 8px;
+    gap: 2px;
+  }
+
+  .menu-overlay-scroll .class-card strong {
+    font-size: 0.74rem;
+  }
+
+  .menu-overlay-scroll .class-stats {
+    font-size: 0.5rem;
+  }
+
+  .menu-overlay-scroll .difficulty-grid {
+    gap: 5px;
+  }
+
+  .menu-overlay-scroll .difficulty-button {
+    min-height: 38px;
+    padding: 5px 6px;
+    gap: 1px;
+    font-size: 0.68rem;
+  }
+
+  .menu-overlay-scroll .difficulty-button small {
+    font-size: 0.54rem;
+  }
+
+  .menu-overlay-scroll .performance-mode-option {
+    gap: 7px;
+    padding: 6px 8px;
+  }
+
+  .menu-overlay-scroll .performance-mode-option input {
+    width: 16px;
+    height: 16px;
+  }
+
+  .menu-overlay-scroll .performance-mode-option strong {
+    font-size: 0.62rem;
+  }
+
+  .menu-overlay-scroll .performance-mode-option small {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    font-size: 0.56rem;
+  }
+
+  .menu-overlay-scroll .overlay-notes {
+    gap: 2px;
+    font-size: 0.64rem;
+    line-height: 1.2;
+  }
+
+  .menu-overlay-scroll .overlay-notes span:last-child {
+    display: none;
+  }
+
+  .menu-start-actions {
+    padding: 8px 12px 12px;
+  }
+
+  .menu-overlay-card {
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .menu-start-actions .action-button {
+    min-height: 42px;
+    padding: 8px 12px;
+  }
+
+  body[data-touch-mode='true'] .pause-control-desktop {
+    display: none;
+  }
+
+  body[data-touch-mode='true'] .pause-control-mobile {
+    display: list-item;
+  }
+
+  .pause-card h1,
+  .shop-overlay-card h1,
+  .debrief-card h1,
+  .failure-overlay-card h1,
+  .victory-card h1 {
+    font-size: 1.7rem;
+  }
+
+  .pause-grid {
+    gap: 8px;
+  }
+
+  .pause-panel {
+    padding: 9px 10px;
+  }
+
+  .pause-panel h3 {
+    margin-bottom: 5px;
+    font-size: 0.66rem;
+  }
+
+  .pause-panel p,
+  .pause-list {
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+
+  .pause-list {
+    gap: 3px;
+  }
+
+  .pause-briefing,
+  .pause-threat {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+  }
+
+  .pause-briefing {
+    -webkit-line-clamp: 3;
+  }
+
+  .pause-threat {
+    -webkit-line-clamp: 2;
+  }
+
+  .pause-weapon-description,
+  .pause-armor-advice,
+  .pause-card .performance-mode-option small {
+    display: none;
+  }
+
+  .pause-card .performance-mode-option {
+    margin-top: 7px;
+    padding: 6px 8px;
+  }
+
+  .shop-intro,
+  .shop-overlay-scroll > .upgrade-recommendation,
+  .debrief-scroll > .upgrade-recommendation {
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+
+  .shop-overlay-scroll > .upgrade-recommendation,
+  .debrief-scroll > .upgrade-recommendation {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .shop-column {
+    padding: 7px;
+  }
+
+  .shop-column-heading {
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+  }
+
+  .shop-column-heading > span,
+  .shop-column-heading > small,
+  .shop-group-title small,
+  .shop-card.is-compact .shop-weapon-potential small {
+    display: none;
+  }
+
+  .shop-column-heading > strong {
+    font-size: 0.92rem;
+  }
+
+  .shop-weapon-matrix,
+  .shop-system-rows {
+    max-height: min(42svh, 300px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .shop-weapon-matrix {
+    gap: 5px;
+  }
+
+  .shop-weapon-group {
+    padding: 5px;
+  }
+
+  .shop-group-title {
+    min-height: 0;
+    margin-bottom: 4px;
+  }
+
+  .shop-card.is-compact {
+    padding: 6px;
+  }
+
+  .mission-bonus-card {
+    gap: 6px;
+    padding: 8px 9px;
+  }
+
+  .mission-bonus-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .mission-bonus-grid > div {
+    padding: 6px;
+  }
+
+  .mission-bonus-grid small,
+  .weapon-unlock-description,
+  .debrief-scroll .overlay-notes span:last-child {
+    display: none;
+  }
+
+  .failure-scroll > p,
+  .debrief-scroll > p,
+  .victory-scroll > p {
+    font-size: 0.74rem;
+    line-height: 1.3;
+  }
+
+  .failure-scroll .difficulty-button,
+  .victory-scroll .difficulty-button {
+    min-height: 38px;
+    padding: 6px;
+  }
+
+  .failure-scroll .difficulty-button small,
+  .victory-scroll .difficulty-button small {
+    font-size: 0.56rem;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .menu-overlay-card {
+    width: min(720px, calc(100% - 24px));
+  }
+
+  .menu-overlay-scroll .class-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .menu-overlay-scroll .difficulty-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .shop-loadout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "unit unit"
+      "weapons systems";
+    gap: 7px;
+  }
+
+  .shop-unit-bay {
+    grid-template-columns: 92px minmax(0, 1fr);
+    grid-template-areas:
+      "visual kicker"
+      "visual name"
+      "visual stats"
+      "visual chassis";
+    gap: 5px 8px;
+    padding: 7px;
+    text-align: left;
+  }
+
+  .shop-unit-visual {
+    min-height: 96px;
+  }
+
+  .shop-unit-visual svg {
+    height: 96px;
+  }
+
+  .shop-unit-name strong {
+    font-size: 1rem;
+  }
+
+  .shop-unit-name span,
+  .shop-unit-kicker {
+    font-size: 0.52rem;
+  }
+
+  .shop-unit-stats {
+    gap: 3px;
+  }
+
+  .shop-unit-stats span {
+    padding: 3px;
+    font-size: 0.48rem;
+  }
+
+  .shop-unit-stats b {
+    font-size: 0.62rem;
+  }
+
+  .shop-weapon-matrix,
+  .shop-system-row {
+    grid-template-columns: 1fr;
+  }
+
+  .shop-actions {
+    padding: 8px 10px 10px;
+  }
+
+  .shop-actions .action-button {
+    font-size: 0.6rem;
+  }
+}

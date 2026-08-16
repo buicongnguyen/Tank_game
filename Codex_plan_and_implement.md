@@ -406,7 +406,7 @@ These changes are currently uncommitted unless the repository state is changed a
 - The right rack places health/shield together, movement/auto-loader together, followed by bullet capacity and repair rows.
 - Bullet Capacity is a functional permanent upgrade: each level adds two trigger pulls to the magazine.
 - Combat now tracks magazine ammunition, displays it in the HUD, and auto-loads an empty magazine. Auto Loader upgrades also shorten magazine reload time.
-- Desktop uses left/center/right columns; tablet/landscape mobile puts the center bay first over two racks; portrait mobile uses a single scrollable column with non-overlapping deploy actions.
+- Desktop uses left/center/right columns; mobile puts the center bay first over two independently scrollable racks, with a persistent deploy footer.
 
 Browser verification confirmed:
 
@@ -668,10 +668,58 @@ Examples:
 - A local gameplay run displayed `BONUS 2:58` after approximately two seconds.
 - Hull integrity, weapon controls, and the rest of the live HUD remained present.
 - The browser console reported no warnings or errors.
-- The bonus layout collapses from two columns to one below 620 px.
+- The bonus layout remains a compact two-column breakdown on phones to reduce vertical scrolling.
 
 ### Claude review focus
 
 - Confirm `$1/second` and `$5/object` produce the intended shop pacing over several full campaign runs.
 - Decide whether later missions should use a longer clock or a stage-specific multiplier; the current rule is intentionally consistent across all stages.
 - Confirm sealed houses that must be destroyed to release a garrison create the desired tradeoff between preservation money and mission completion.
+
+---
+
+## Request 18: Mobile overlay fit and reduced scrolling
+
+### Evaluation
+
+The phone-sized browser audit used `360 × 640`, `320 × 568`, and `640 × 360` viewports. The document itself was correctly locked to the game viewport, but several overlay cards used one tall scroll surface for both information and actions.
+
+Before this pass at `360 × 640`:
+
+- The start content was 1,182 px tall inside a 538 px viewport: 644 px of internal overflow.
+- The pause card was 1,087 px tall inside a 610 px viewport: 477 px of overflow.
+- Pause/resume, retry, shop/deploy, and debrief actions could sit below long descriptive content.
+- The start screen stacked five unit choices almost vertically at narrow widths.
+- The smallest shop breakpoint changed the whole three-bay depot to one long column.
+
+### Implemented fix
+
+1. Shortened the start introduction, test-mode explanation, pause threat copy, shop introduction, debrief summary, weapon-unlock note, failure summary, and victory summary without removing gameplay-critical information.
+2. Added a shared mobile overlay structure to pause, shop, debrief, failure, and victory screens:
+   - content scrolls only inside a bounded, momentum-enabled region;
+   - the primary action footer stays pinned and always visible;
+   - overscroll is contained inside the panel;
+   - a stable scrollbar gutter prevents content width from shifting when scrolling appears.
+3. Changed the start unit selector to two columns on phones and tightened headings, stats, difficulty choices, performance mode, and notes. The existing fixed Start Campaign footer remains unchanged in behavior.
+4. Pause now shows touch instructions on real touch devices and keyboard/mouse instructions otherwise. Long weapon descriptions and secondary armor advice are hidden on small displays while weapon names and tank stats remain visible.
+5. Kept the shop's selected-unit bay across the full width, with weapons and systems in two compact columns below it. Each dense rack has its own bounded scroller, so browsing equipment does not move the depot action buttons.
+6. Kept the mission-bonus breakdown in two compact columns on phones and removed only secondary explanatory lines. Values and earned totals remain visible.
+7. Moved Retry Current Stage, Enter Shop/deploy, Resume Mission, and Run Again into fixed mobile footers. Campaign selection and secondary actions stay in the content region.
+8. The release review changed mobile overlay height to the safe-area-adjusted grid height rather than a raw viewport calculation, preventing fixed footers from falling behind notches or home indicators. Narrow shop racks now stack their own cards in one readable column while the weapon and systems racks remain side by side.
+
+### Verification
+
+- `npm run build` passed TypeScript and Vite production compilation.
+- `git diff --check` passed.
+- At `360 × 640`, the start content now fits with zero overflow; the Start Campaign footer remains visible.
+- At `360 × 640`, pause overflow fell from 477 px to 69 px; Resume Mission remains visible in a fixed footer.
+- At `320 × 568`, document overflow stayed at zero. The start content had only 102 px of bounded internal overflow and the pause content 155 px, with both action footers visible.
+- At `640 × 360`, document overflow stayed at zero; a landscape-specific five-column unit grid reduced start overflow from 240 px to 90 px while keeping Start Campaign visible.
+- The pause panel, battlefield, HUD, and resume interaction rendered correctly after the responsive changes.
+
+### Claude review focus
+
+- Verify touch-device pause instructions switch from keyboard/mouse to left-stick and right-stick/tap labels on physical Android/iOS hardware.
+- Exercise the largest late-campaign shop inventory on a narrow device and confirm nested weapon/system rack scrolling feels natural.
+- Confirm long translated mission briefings remain understandable when the mobile pause briefing is clamped to three lines.
+- Check safe-area padding and fixed footers on an iPhone with a home indicator and on a short landscape Android display.

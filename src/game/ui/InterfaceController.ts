@@ -388,7 +388,7 @@ export class InterfaceController {
     return `
       <div class="class-panel" aria-label="Choose your unit">
         <span>Test Mode · All Unit Shapes Available</span>
-        <small class="test-mode-note">Campaign release will begin as Soldier; Mini, Small, Medium, and Heavy tanks unlock across the route and must be purchased in the depot.</small>
+        <small class="test-mode-note">All units are open for testing. Campaign mode will unlock and sell tanks over time.</small>
         <div class="class-grid">
           ${order.map((id) => {
             const spec = PLAYER_CLASSES[id];
@@ -747,51 +747,54 @@ export class InterfaceController {
       const progression = progressionForMission(snapshot.currentMissionIndex);
       return `
         <section class="overlay-card tank-overlay-card pause-card">
-          <span class="overlay-kicker">Paused - Mission ${snapshot.currentMissionIndex + 1}/${snapshot.missions.length}</span>
-          <h1>${mission.codename}</h1>
-          <div class="pause-grid">
-            <div class="pause-panel">
-              <h3>Objective</h3>
-              <p>${mission.objective}</p>
-              <p>${mission.briefing}</p>
-              <p class="upgrade-recommendation"><strong>Threat ${progression.threatLevel}/15</strong> · Recommended: ${progression.recommendedUpgrade}. ${progression.reason}</p>
-            </div>
-            <div class="pause-panel">
-              <h3>Controls</h3>
-              <ul class="pause-list">
-                <li><strong>WASD</strong> drive</li>
-                <li><strong>Mouse</strong> aim turret</li>
-                <li><strong>Space / E</strong> fire ${WEAPONS[snapshot.selectedWeapon].label}</li>
-                <li><strong>X</strong> swap weapon</li>
-                <li><strong>Q</strong> artillery strike</li>
-                <li><strong>R</strong> field repair</li>
-                <li><strong>Esc / P</strong> pause</li>
-              </ul>
-            </div>
-            <div class="pause-panel">
-              <h3>Arsenal (${snapshot.unlockedWeapons.length})</h3>
-              <ul class="pause-list">
-                ${snapshot.unlockedWeapons.map((id) => `
-                  <li class="${id === snapshot.selectedWeapon ? 'is-current' : ''}">
-                    <strong>${WEAPONS[id].label}</strong> ${WEAPONS[id].description}
-                  </li>
-                `).join('')}
-              </ul>
-            </div>
-            <div class="pause-panel">
-              <h3>Tank</h3>
-              <ul class="pause-list">
-                <li><strong>Hull</strong> ${snapshot.tankStats.maxHealth} HP</li>
-                <li><strong>Armor</strong> ${snapshot.tankStats.armor.toFixed(2)}x</li>
-                <li><strong>Engine</strong> ${Math.round(snapshot.tankStats.engine)}</li>
-                <li><strong>Score</strong> ${snapshot.totalScore.toLocaleString()}</li>
-                <li><strong>Scrap</strong> ${snapshot.scrap}</li>
-              </ul>
-              <p>Angle your hull at threats - rear hits hurt far more than front hits.</p>
-              ${this.renderPerformanceModeToggle()}
+          <div class="pause-scroll overlay-scroll-region">
+            <span class="overlay-kicker">Paused · Mission ${snapshot.currentMissionIndex + 1}/${snapshot.missions.length}</span>
+            <h1>${mission.codename}</h1>
+            <div class="pause-grid">
+              <div class="pause-panel">
+                <h3>Objective</h3>
+                <p>${mission.objective}</p>
+                <p class="pause-briefing">${mission.briefing}</p>
+                <p class="upgrade-recommendation pause-threat"><strong>Threat ${progression.threatLevel}/15</strong> · ${progression.recommendedUpgrade}. ${progression.reason}</p>
+              </div>
+              <div class="pause-panel">
+                <h3>Controls</h3>
+                <ul class="pause-list">
+                  <li class="pause-control-desktop"><strong>WASD</strong> drive</li>
+                  <li class="pause-control-desktop"><strong>Mouse</strong> aim turret</li>
+                  <li class="pause-control-desktop"><strong>Space / E</strong> fire</li>
+                  <li class="pause-control-mobile"><strong>Left stick</strong> drive</li>
+                  <li class="pause-control-mobile"><strong>Right stick / tap</strong> aim and fire</li>
+                  <li><strong>Swap</strong> change weapon</li>
+                  <li><strong>Q / Strike</strong> artillery</li>
+                  <li><strong>R / +</strong> repair</li>
+                </ul>
+              </div>
+              <div class="pause-panel">
+                <h3>Arsenal (${snapshot.unlockedWeapons.length})</h3>
+                <ul class="pause-list pause-arsenal-list">
+                  ${snapshot.unlockedWeapons.map((id) => `
+                    <li class="${id === snapshot.selectedWeapon ? 'is-current' : ''}">
+                      <strong>${WEAPONS[id].label}</strong><span class="pause-weapon-description"> ${WEAPONS[id].description}</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+              <div class="pause-panel">
+                <h3>Tank</h3>
+                <ul class="pause-list">
+                  <li><strong>Hull</strong> ${snapshot.tankStats.maxHealth} HP</li>
+                  <li><strong>Armor</strong> ${snapshot.tankStats.armor.toFixed(2)}x</li>
+                  <li><strong>Engine</strong> ${Math.round(snapshot.tankStats.engine)}</li>
+                  <li><strong>Score</strong> ${snapshot.totalScore.toLocaleString()}</li>
+                  <li><strong>Scrap</strong> ${snapshot.scrap}</li>
+                </ul>
+                <p class="pause-armor-advice">Face threats with the front armor; rear hits hurt more.</p>
+                ${this.renderPerformanceModeToggle()}
+              </div>
             </div>
           </div>
-          <div class="overlay-actions">
+          <div class="overlay-actions overlay-footer-actions">
             <button type="button" class="action-button primary" data-resume>Resume Mission</button>
           </div>
         </section>
@@ -805,10 +808,9 @@ export class InterfaceController {
             <span class="overlay-kicker">Mobile Tank Prototype</span>
             <h1>Tank Game: Steel Front</h1>
             <p>
-              Pilot a customizable tank through short armored missions. Drive with weight, aim the turret,
-              crack destructible cover, angle your armor, and choose upgrades between fights.
+              Choose a unit, drive with weight, aim independently, break cover, and upgrade between missions.
             </p>
-            ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> every chassis is selectable for balance testing.</p>' : ''}
+            ${TEST_MODE ? '<p class="test-mode-banner"><strong>Test Mode:</strong> all chassis unlocked.</p>' : ''}
             ${this.renderClassSelector()}
             ${this.renderDifficultySelector()}
             ${this.renderPerformanceModeToggle()}
@@ -833,12 +835,14 @@ export class InterfaceController {
       if (this.intermissionView === 'shop') {
         return `
           <section class="overlay-card tank-overlay-card shop-overlay-card">
-            <span class="overlay-kicker">Between Missions</span>
-            <h1>Field Depot</h1>
-            <p>Fit the selected unit in the center bay: weapons on the left, chassis in the middle, and combat systems on the right.</p>
-            <p class="upgrade-recommendation"><strong>Next threat ${nextProgression.threatLevel}/15:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
-            ${this.renderShop(snapshot)}
-            <div class="overlay-actions shop-actions">
+            <div class="shop-overlay-scroll overlay-scroll-region">
+              <span class="overlay-kicker">Between Missions</span>
+              <h1>Field Depot</h1>
+              <p class="shop-intro">Upgrade weapons, chassis, and combat systems.</p>
+              <p class="upgrade-recommendation"><strong>Next threat ${nextProgression.threatLevel}/15:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
+              ${this.renderShop(snapshot)}
+            </div>
+            <div class="overlay-actions shop-actions overlay-footer-actions">
               <button type="button" class="action-button" data-close-shop>Back to Debrief</button>
               <button type="button" class="action-button primary" data-deploy>Deploy to ${nextMission?.codename ?? 'Next Mission'}</button>
             </div>
@@ -847,28 +851,26 @@ export class InterfaceController {
       }
 
       return `
-        <section class="overlay-card tank-overlay-card">
-          <span class="overlay-kicker">Mission Clear</span>
-          <h1>${mission.codename} Complete</h1>
-          <p>
-            Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
-            Available credits: <strong>$${snapshot.credits}</strong>. Enter the depot to buy or upgrade equipment.
-          </p>
-          ${this.renderMissionBonus(snapshot)}
-          <p class="upgrade-recommendation"><strong>Recommended before ${nextMission?.codename ?? 'deployment'}:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
-          ${incomingWeapon ? `
-            <p class="weapon-unlock-note">
-              New weapon fitted for the next mission: <strong>${incomingWeapon.label}</strong> - ${incomingWeapon.description}
-              Press <strong>X</strong> in battle to swap between weapons.
-            </p>
-          ` : ''}
-          <div class="overlay-actions">
+        <section class="overlay-card tank-overlay-card debrief-card">
+          <div class="debrief-scroll overlay-scroll-region">
+            <span class="overlay-kicker">Mission Clear</span>
+            <h1>${mission.codename} Complete</h1>
+            <p>Score <strong>${snapshot.totalScore.toLocaleString()}</strong> · Credits <strong>$${snapshot.credits}</strong></p>
+            ${this.renderMissionBonus(snapshot)}
+            <p class="upgrade-recommendation"><strong>Next: ${nextProgression.recommendedUpgrade}</strong> · ${nextProgression.reason}</p>
+            ${incomingWeapon ? `
+              <p class="weapon-unlock-note">
+                New weapon: <strong>${incomingWeapon.label}</strong><span class="weapon-unlock-description"> · ${incomingWeapon.description}</span>
+              </p>
+            ` : ''}
+            <div class="overlay-notes">
+              <span>Next: ${nextMission?.codename ?? 'Final Debrief'}</span>
+              <span>${nextMission?.briefing ?? 'All enemy armor has been destroyed.'}</span>
+            </div>
+          </div>
+          <div class="overlay-actions overlay-footer-actions">
             <button type="button" class="action-button primary" data-open-shop>Enter Shop</button>
             <button type="button" class="action-button" data-deploy>Deploy Without Shopping</button>
-          </div>
-          <div class="overlay-notes">
-            <span>Next: ${nextMission?.codename ?? 'Final Debrief'}</span>
-            <span>${nextMission?.briefing ?? 'All enemy armor has been destroyed.'}</span>
           </div>
         </section>
       `;
@@ -882,58 +884,56 @@ export class InterfaceController {
       );
       return `
         <section class="overlay-card tank-overlay-card failure-overlay-card">
-          <span class="overlay-kicker danger">${failureReason}</span>
-          <h1>Mission Failed</h1>
-          <p>
-            You reached ${mission.codename} with a score of
-            <strong>${snapshot.totalScore.toLocaleString()}</strong>. ${this.getFailureAdvice(failureReason)}
-          </p>
-          <div class="overlay-actions">
+          <div class="failure-scroll overlay-scroll-region">
+            <span class="overlay-kicker danger">${failureReason}</span>
+            <h1>Mission Failed</h1>
+            <p><strong>${mission.codename}</strong> · Score ${snapshot.totalScore.toLocaleString()}. ${this.getFailureAdvice(failureReason)}</p>
+            <div class="mission-retry-panel" aria-label="Choose a previously played mission">
+              <div class="mission-retry-heading">
+                <span>Continue Campaign</span>
+                <small>Loadout, credits, and score are preserved.</small>
+              </div>
+              <div class="mission-retry-grid">
+                ${snapshot.missions.map((playedMission, index) => {
+                  const unlocked = index <= highestPlayedIndex;
+                  const current = index === snapshot.currentMissionIndex;
+                  return `
+                    <button
+                      type="button"
+                      class="mission-retry-button ${current ? 'is-current' : ''}"
+                      ${unlocked ? `data-continue-mission="${index}"` : 'disabled'}
+                      aria-label="${unlocked ? `${current ? 'Retry' : 'Continue from'} mission ${index + 1}: ${playedMission.codename}` : `Mission ${index + 1} locked`}"
+                    >
+                      <span>${unlocked ? `Mission ${index + 1}` : `Locked ${index + 1}`}</span>
+                      <strong>${unlocked ? playedMission.codename : 'Not Reached'}</strong>
+                      <small>${current ? 'Retry stage' : unlocked ? 'Played' : 'Locked'}</small>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+            ${this.renderDifficultySelector()}
+            <div class="overlay-actions">
+              <button type="button" class="action-button" data-start>Start New Campaign</button>
+            </div>
+          </div>
+          <div class="overlay-actions overlay-footer-actions">
             <button type="button" class="action-button primary" data-continue-mission="${snapshot.currentMissionIndex}">Retry Current Stage</button>
-          </div>
-          <div class="mission-retry-panel" aria-label="Choose a previously played mission">
-            <div class="mission-retry-heading">
-              <span>Continue Campaign</span>
-              <small>Your unit, weapons, upgrades, credits, and score are preserved.</small>
-            </div>
-            <div class="mission-retry-grid">
-              ${snapshot.missions.map((playedMission, index) => {
-                const unlocked = index <= highestPlayedIndex;
-                const current = index === snapshot.currentMissionIndex;
-                return `
-                  <button
-                    type="button"
-                    class="mission-retry-button ${current ? 'is-current' : ''}"
-                    ${unlocked ? `data-continue-mission="${index}"` : 'disabled'}
-                    aria-label="${unlocked ? `${current ? 'Retry' : 'Continue from'} mission ${index + 1}: ${playedMission.codename}` : `Mission ${index + 1} locked`}"
-                  >
-                    <span>${unlocked ? `Mission ${index + 1}` : `Locked ${index + 1}`}</span>
-                    <strong>${unlocked ? playedMission.codename : 'Not Reached'}</strong>
-                    <small>${current ? 'Retry failed stage' : unlocked ? 'Previously played' : 'Complete earlier stages'}</small>
-                  </button>
-                `;
-              }).join('')}
-            </div>
-          </div>
-          ${this.renderDifficultySelector()}
-          <div class="overlay-actions">
-            <button type="button" class="action-button" data-start>Start New Campaign</button>
           </div>
         </section>
       `;
     }
 
     return `
-      <section class="overlay-card tank-overlay-card">
-        <span class="overlay-kicker success">Campaign Clear</span>
-        <h1>Steel Front Secured</h1>
-        <p>
-          Final score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
-          The full prototype route is complete: assault, defense, escort, capture, boss, upgrades, and Android packaging.
-        </p>
-        ${this.renderMissionBonus(snapshot)}
-        ${this.renderDifficultySelector()}
-        <div class="overlay-actions">
+      <section class="overlay-card tank-overlay-card victory-card">
+        <div class="victory-scroll overlay-scroll-region">
+          <span class="overlay-kicker success">Campaign Clear</span>
+          <h1>Steel Front Secured</h1>
+          <p>Final score: <strong>${snapshot.totalScore.toLocaleString()}</strong>. All missions complete.</p>
+          ${this.renderMissionBonus(snapshot)}
+          ${this.renderDifficultySelector()}
+        </div>
+        <div class="overlay-actions overlay-footer-actions">
           <button type="button" class="action-button primary" data-start>Run Again</button>
         </div>
       </section>
