@@ -2426,6 +2426,10 @@ a {
   color: #ffd766;
 }
 
+.hud-bonus-time {
+  color: #ffd766;
+}
+
 .class-panel,
 .shop-panel {
   display: grid;
@@ -2453,6 +2457,76 @@ a {
 .test-mode-banner strong,
 .upgrade-recommendation strong {
   color: var(--accent, #efb648);
+}
+
+.mission-bonus-card {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 215, 102, 0.34);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 215, 102, 0.1), rgba(162, 219, 124, 0.06));
+}
+
+.mission-bonus-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mission-bonus-heading strong {
+  color: #ffd766;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+}
+
+.mission-bonus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mission-bonus-grid > div {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 242, 196, 0.12);
+  border-radius: 9px;
+  background: rgba(4, 9, 6, 0.42);
+}
+
+.mission-bonus-grid span,
+.mission-bonus-grid small {
+  color: var(--muted);
+}
+
+.mission-bonus-grid span {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.mission-bonus-grid strong {
+  color: var(--paper);
+  font-size: 0.92rem;
+}
+
+.mission-bonus-grid small {
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 620px) {
+  .mission-bonus-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .test-mode-note,

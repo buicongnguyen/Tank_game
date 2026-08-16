@@ -18,6 +18,12 @@ interface InterfaceOptions {
   setPerformanceModeEnabled?: (enabled: boolean) => void;
 }
 
+function formatMissionTime(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`;
+}
+
 export class InterfaceController {
   private readonly hudRoot: HTMLElement;
   private readonly overlayRoot: HTMLElement;
@@ -108,6 +114,7 @@ export class InterfaceController {
       totalMissions: this.sessionSnapshot.missions.length,
       objective: mission.objective,
       progressText: 'Awaiting deployment order',
+      bonusTimeRemainingSeconds: 180,
       enemyCount: { alive: 0, total: mission.enemies.length + (mission.boss ? 1 : 0) },
       totalScore: this.sessionSnapshot.totalScore,
       scrap: this.sessionSnapshot.scrap,
@@ -167,6 +174,7 @@ export class InterfaceController {
         <div class="hud-block hud-right tank-hud-right">
           <div class="hud-micro hud-micro-right">
             <span data-hud="mission"></span>
+            <span class="hud-bonus-time" data-hud="bonus-time"></span>
             <span data-hud="hostiles"></span>
             <span data-hud="score"></span>
           </div>
@@ -196,6 +204,7 @@ export class InterfaceController {
     this.setHudText('ammo', `AMMO ${tank.ammo}/${tank.ammoCapacity}`);
     this.setHudText('repair', `RPR x${tank.repairCharges}`);
     this.setHudText('mission', `M ${hud.missionIndex}/${hud.totalMissions}`);
+    this.setHudText('bonus-time', `BONUS ${formatMissionTime(hud.bonusTimeRemainingSeconds)}`);
     this.setHudText('hostiles', `HOSTILES ${hud.enemyCount.alive}/${hud.enemyCount.total}`);
     this.setHudText('score', hud.totalScore.toLocaleString());
     this.setHudText('progress', hud.progressText);
@@ -631,6 +640,34 @@ export class InterfaceController {
     `;
   }
 
+  private renderMissionBonus(snapshot: SessionSnapshot): string {
+    const bonus = snapshot.missionBonus;
+    if (!bonus) {
+      return '';
+    }
+
+    return `
+      <section class="mission-bonus-card" aria-label="Mission bonus breakdown">
+        <div class="mission-bonus-heading">
+          <span>Stage Bonus</span>
+          <strong>+$${bonus.total}</strong>
+        </div>
+        <div class="mission-bonus-grid">
+          <div>
+            <span>Time Remaining</span>
+            <strong>${formatMissionTime(bonus.remainingSeconds)} × $${bonus.timeBonusRate}</strong>
+            <small>+$${bonus.timeBonus} · Finished in ${formatMissionTime(bonus.elapsedSeconds)} of ${formatMissionTime(bonus.timeLimitSeconds)}</small>
+          </div>
+          <div>
+            <span>Objects Preserved</span>
+            <strong>${bonus.remainingObjects} × $${bonus.objectBonusRate}</strong>
+            <small>+$${bonus.objectBonus} · Intact structures and cover</small>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   private renderIntel(): void {
     const snapshot = this.sessionSnapshot;
 
@@ -817,6 +854,7 @@ export class InterfaceController {
             Score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
             Available credits: <strong>$${snapshot.credits}</strong>. Enter the depot to buy or upgrade equipment.
           </p>
+          ${this.renderMissionBonus(snapshot)}
           <p class="upgrade-recommendation"><strong>Recommended before ${nextMission?.codename ?? 'deployment'}:</strong> ${nextProgression.recommendedUpgrade} · ${nextProgression.reason}</p>
           ${incomingWeapon ? `
             <p class="weapon-unlock-note">
@@ -893,6 +931,7 @@ export class InterfaceController {
           Final score: <strong>${snapshot.totalScore.toLocaleString()}</strong>.
           The full prototype route is complete: assault, defense, escort, capture, boss, upgrades, and Android packaging.
         </p>
+        ${this.renderMissionBonus(snapshot)}
         ${this.renderDifficultySelector()}
         <div class="overlay-actions">
           <button type="button" class="action-button primary" data-start>Run Again</button>

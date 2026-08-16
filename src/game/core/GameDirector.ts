@@ -21,7 +21,7 @@ import {
 } from '../data/playerClasses';
 import { SHOP_STATS, statPrice } from '../data/shop';
 import type {
-  DifficultyMode, MissionConfig, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId,
+  DifficultyMode, MissionBonusBreakdown, MissionConfig, PlayerClassId, SessionSnapshot, ShopEntry, ShopItemId,
   TankStats, UpgradeId, UpgradeOption, WeaponId,
 } from '../types';
 
@@ -116,6 +116,7 @@ export class GameDirector {
   private statLevels: Partial<Record<ShopItemId, number>> = {};
   private boughtWeapons: WeaponId[] = [];
   private weaponLevels: Partial<Record<WeaponId, number>> = {};
+  private missionBonus: MissionBonusBreakdown | undefined;
 
   constructor(missions: MissionConfig[] = STAGES) {
     this.missions = missions;
@@ -156,6 +157,7 @@ export class GameDirector {
       playerClass: this.playerClass,
       credits: this.credits,
       shop: this.getShopEntries(),
+      missionBonus: this.missionBonus ? { ...this.missionBonus } : undefined,
     };
   }
 
@@ -373,6 +375,7 @@ export class GameDirector {
     this.boughtWeapons = [];
     this.weaponLevels = { [PLAYER_CLASSES[playerClass].startingWeapon]: 1 };
     this.failureReason = undefined;
+    this.missionBonus = undefined;
     this.completedMissions = 0;
     this.tankStats = applyDifficulty(cloneClassStats(playerClass), difficulty);
     this.pendingUpgrades = this.getUpgradeOptions(0);
@@ -415,6 +418,7 @@ export class GameDirector {
     this.currentMissionIndex += 1;
     this.phase = 'playing';
     this.failureReason = undefined;
+    this.missionBonus = undefined;
     this.pendingUpgrades = this.getUpgradeOptions(this.currentMissionIndex);
 
     // auto-equip a weapon the moment it unlocks so the new toy is in hand
@@ -442,12 +446,29 @@ export class GameDirector {
     this.emit();
   }
 
-  completeCurrentMission(reward: { score: number; scrap: number }): void {
+  completeCurrentMission(reward: { score: number; scrap: number; bonus?: MissionBonusBreakdown }): void {
     this.failureReason = undefined;
     this.totalScore += Math.max(0, Math.round(reward.score));
     const salvage = Math.max(0, Math.round(reward.scrap));
+    const bonus = reward.bonus
+      ? {
+          timeLimitSeconds: Math.max(0, Math.round(reward.bonus.timeLimitSeconds)),
+          elapsedSeconds: Math.max(0, Math.round(reward.bonus.elapsedSeconds)),
+          remainingSeconds: Math.max(0, Math.round(reward.bonus.remainingSeconds)),
+          timeBonusRate: Math.max(0, Math.round(reward.bonus.timeBonusRate)),
+          timeBonus: Math.max(0, Math.round(reward.bonus.timeBonus)),
+          remainingObjects: Math.max(0, Math.round(reward.bonus.remainingObjects)),
+          objectBonusRate: Math.max(0, Math.round(reward.bonus.objectBonusRate)),
+          objectBonus: Math.max(0, Math.round(reward.bonus.objectBonus)),
+          total: 0,
+        }
+      : undefined;
+    if (bonus) {
+      bonus.total = bonus.timeBonus + bonus.objectBonus;
+    }
+    this.missionBonus = bonus;
     this.scrap += salvage;
-    this.credits += salvage;
+    this.credits += salvage + (bonus?.total ?? 0);
     // This is a progression frontier, not a completion counter. Replaying an
     // earlier mission must not move the frontier or unlock stages twice.
     this.completedMissions = Math.max(
@@ -494,6 +515,7 @@ export class GameDirector {
 
   failMission(reason = 'Mission failed'): void {
     this.failureReason = reason;
+    this.missionBonus = undefined;
     this.phase = 'gameover';
     this.emit();
   }
@@ -519,6 +541,7 @@ export class GameDirector {
     this.currentMissionIndex = index;
     this.phase = 'playing';
     this.failureReason = undefined;
+    this.missionBonus = undefined;
     this.pendingUpgrades = this.getUpgradeOptions(index);
     this.runSerial += 1;
     this.emit();

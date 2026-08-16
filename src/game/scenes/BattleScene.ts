@@ -15,6 +15,7 @@ import type {
   HouseDoorSide,
   HudSnapshot,
   InfantryKind,
+  MissionBonusBreakdown,
   MissionConfig,
   SessionSnapshot,
   TankStats,
@@ -340,6 +341,13 @@ const PICKUP_TTL_MS = 22000;
 const GAS_CLOUD_DURATION_MS = 3600;
 /** DOM HUD updates are intentionally slower than the 60 Hz simulation. */
 const HUD_UPDATE_INTERVAL_MS = 100;
+/** Every mission shares a three-minute speed-bonus clock; it is not a failure timer. */
+const MISSION_BONUS_DURATION_MS = 3 * 60 * 1000;
+const TIME_BONUS_PER_SECOND = 1;
+const OBJECT_BONUS_PER_OBJECT = 5;
+const PRESERVATION_BONUS_KINDS: ReadonlySet<CoverConfig['kind']> = new Set([
+  'crate', 'concrete', 'rockWall', 'barrel', 'houseOpen', 'houseSealed',
+]);
 /** Hard caps prevent automatic weapons from growing unbounded effect arrays. */
 const MAX_MUZZLE_FLASHES = 48;
 const MAX_IMPACT_EFFECTS = 72;
@@ -2094,20 +2102,44 @@ export class BattleScene extends Phaser.Scene {
     const aliveBonus = Math.round(Math.max(0, this.player.health) * 0.8);
     const clearBonus = 420 + this.snapshot.currentMissionIndex * 160;
     const score = clearBonus + aliveBonus;
+    const bonus = this.calculateMissionBonus();
     // Every clear should fund at least one meaningful depot decision. Later
     // stages pay more because their recommended upgrades and chassis cost more.
     const scrap = 125
       + this.snapshot.currentMissionIndex * 38
       + Math.round(this.enemies.filter((enemy) => !enemy.alive).reduce((sum, enemy) => sum + enemy.scrap, 0) * 0.65);
-    this.addFloatingText(this.player.x, this.player.y - 70, 'Mission Clear', 0xa2db7c);
+    this.addFloatingText(this.player.x, this.player.y - 70, `Mission Clear +$${bonus.total}`, 0xa2db7c);
     this.audio?.setEngineLoad(0);
     this.audio?.playSfx('mission-clear', 0.9);
     const generation = this.missionGeneration;
     this.time.delayedCall(600, () => {
       if (generation === this.missionGeneration) {
-        this.director.completeCurrentMission({ score, scrap });
+        this.director.completeCurrentMission({ score, scrap, bonus });
       }
     });
+  }
+
+  private calculateMissionBonus(): MissionBonusBreakdown {
+    const timeLimitSeconds = MISSION_BONUS_DURATION_MS / 1000;
+    const elapsedSeconds = Math.max(0, Math.ceil(this.missionElapsed / 1000));
+    const remainingSeconds = Math.max(0, timeLimitSeconds - elapsedSeconds);
+    const remainingObjects = this.covers.reduce((count, cover) => (
+      count + (PRESERVATION_BONUS_KINDS.has(cover.kind) && cover.health > 0 && !cover.spent ? 1 : 0)
+    ), 0);
+    const timeBonus = remainingSeconds * TIME_BONUS_PER_SECOND;
+    const objectBonus = remainingObjects * OBJECT_BONUS_PER_OBJECT;
+
+    return {
+      timeLimitSeconds,
+      elapsedSeconds,
+      remainingSeconds,
+      timeBonusRate: TIME_BONUS_PER_SECOND,
+      timeBonus,
+      remainingObjects,
+      objectBonusRate: OBJECT_BONUS_PER_OBJECT,
+      objectBonus,
+      total: timeBonus + objectBonus,
+    };
   }
 
   private failMission(reason: string): void {
@@ -2716,6 +2748,7 @@ export class BattleScene extends Phaser.Scene {
       totalMissions: snapshot.missions.length,
       objective: mission.objective,
       progressText,
+      bonusTimeRemainingSeconds: Math.max(0, Math.floor((MISSION_BONUS_DURATION_MS - this.missionElapsed) / 1000)),
       enemyCount: {
         alive: enemyAlive,
         total: this.enemies.length + pendingGarrison,

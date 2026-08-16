@@ -162,6 +162,7 @@ export interface HudSnapshot {
   totalMissions: number;
   objective: string;
   progressText: string;
+  bonusTimeRemainingSeconds: number;
   enemyCount: {
     alive: number;
     total: number;
@@ -177,6 +178,18 @@ export interface HudSnapshot {
     unlockedCount: number;
   };
   boss?: BossStatus;
+}
+
+export interface MissionBonusBreakdown {
+  timeLimitSeconds: number;
+  elapsedSeconds: number;
+  remainingSeconds: number;
+  timeBonusRate: number;
+  timeBonus: number;
+  remainingObjects: number;
+  objectBonusRate: number;
+  objectBonus: number;
+  total: number;
 }
 
 export interface SessionSnapshot {
@@ -199,4 +212,5 @@ export interface SessionSnapshot {
   playerClass: PlayerClassId;
   credits: number;
   shop: ShopEntry[];
+  missionBonus?: MissionBonusBreakdown;
 }

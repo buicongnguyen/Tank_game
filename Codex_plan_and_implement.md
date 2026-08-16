@@ -631,3 +631,47 @@ The review did confirm two sources that become much more expensive on mobile:
 ### Remaining device check
 
 The browser result confirms the hot paths are bounded and functionally correct, but it is not a substitute for a physical low/mid-range Android trace. Claude should profile sustained Machine Gun fire plus clustered explosions on a real device and compare `data-game-frame-max` / `data-game-long-frames` with performance mode on and off. If long frames persist, the next high-value step is replacing frequently rebuilt Phaser Graphics actor art with cached textures; the HUD should not be rebuilt or slowed further unless device evidence specifically points back to DOM work.
+
+---
+
+## Request 17: End-of-stage time and preservation bonus
+
+### Reward rule
+
+Every mission now starts with a three-minute **bonus clock**. This clock does not fail the mission when it reaches zero; it only determines the speed reward.
+
+- Time bonus: `$1` for each whole second remaining from `3:00`.
+- Preservation bonus: `$5` for each intact crate, concrete block, rock wall, barrel, open house, or sealed house.
+- Mines, repair pads, and armory pickups are excluded. Triggering a mine or using a field utility therefore does not reduce the preservation bonus.
+- Bonus money is added to credits only. Existing mission salvage continues to add to both cumulative scrap and credits.
+
+Examples:
+
+- Clear at `1:00` elapsed with 10 eligible objects intact: `120 × $1 + 10 × $5 = $170` bonus.
+- Clear after the three-minute mark with 6 objects intact: `$0 + 6 × $5 = $30` bonus.
+
+### Implementation
+
+1. `BattleScene` calculates the breakdown at the instant mission completion is resolved, before the existing delayed transition to the debrief.
+2. The existing `missionResolved` guard prevents repeated update ticks from paying the bonus more than once.
+3. `GameDirector.completeCurrentMission` normalizes and stores the breakdown, adds its total to credits, and includes it in `SessionSnapshot` for presentation.
+4. The stored breakdown is cleared when starting a campaign, deploying to another stage, failing, or retrying a stage. It remains available throughout the debrief/shop flow and on the final campaign-clear screen.
+5. The live HUD shows `BONUS M:SS`, using the same three-minute clock as the final calculation.
+6. The stage debrief and final victory screen show:
+   - total stage bonus;
+   - time remaining, rate, time reward, elapsed time, and the `3:00` limit;
+   - preserved object count, rate, and object reward.
+
+### Verification
+
+- TypeScript and Vite production build passed.
+- A local gameplay run displayed `BONUS 2:58` after approximately two seconds.
+- Hull integrity, weapon controls, and the rest of the live HUD remained present.
+- The browser console reported no warnings or errors.
+- The bonus layout collapses from two columns to one below 620 px.
+
+### Claude review focus
+
+- Confirm `$1/second` and `$5/object` produce the intended shop pacing over several full campaign runs.
+- Decide whether later missions should use a longer clock or a stage-specific multiplier; the current rule is intentionally consistent across all stages.
+- Confirm sealed houses that must be destroyed to release a garrison create the desired tradeoff between preservation money and mission completion.
