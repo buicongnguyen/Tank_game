@@ -8,9 +8,7 @@ function isTouchButtonAction(value: string | undefined): value is TouchButtonAct
   return value === 'fire' || value === 'special' || value === 'repair' || value === 'switchWeapon';
 }
 
-/** Travel from the stick origin, in px, that maps to a fully deflected axis. */
-const DRIVE_STICK_RADIUS = 58;
-const AIM_STICK_RADIUS = 32;
+const STICK_DEAD_ZONE = 0.15;
 
 const ICONS: Record<string, string> = {
   fire: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.2h9V5.6l6.4 6.4L12 18.4v-3.6H3z"/></svg>',
@@ -22,7 +20,6 @@ const ICONS: Record<string, string> = {
 
 interface StickBinding {
   kind: 'drive' | 'aim';
-  radius: number;
   zone: HTMLElement;
   shell: HTMLElement;
   knob: HTMLElement;
@@ -43,8 +40,7 @@ export class TouchControlsOverlay {
   /**
    * Strict test: the primary pointer must actually be a finger. A touch-capable
    * laptop reports `hover: hover` / `pointer: fine`, so it stays on the desktop
-   * layout - important because the touch layout claims both halves of the
-   * screen for the sticks and would otherwise swallow mouse aiming.
+   * layout, keeping the movement-only lower-left zone from swallowing mouse aim.
    */
   private readonly touchQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
   private readonly narrowTouchQuery = window.matchMedia('(max-width: 820px) and (pointer: coarse)');
@@ -56,8 +52,7 @@ export class TouchControlsOverlay {
     this.root.innerHTML = `
       <div class="touch-controls tank-touch-controls">
         <div class="touch-zone touch-zone-drive" data-zone="drive">
-          <div class="touch-stick-shell tank-drive-stick" data-shell data-engaged="false">
-            <div class="touch-stick-ring"></div>
+          <div class="touch-stick-shell tank-drive-stick" data-shell data-engaged="false" aria-label="Drive joystick">
             <div class="touch-stick-knob" data-knob></div>
             <span class="touch-stick-keys">WASD</span>
             <span class="touch-stick-label">Drive</span>
@@ -67,38 +62,41 @@ export class TouchControlsOverlay {
           <div class="touch-action-mini">
             <button type="button" class="touch-button touch-button-mini" data-action="switchWeapon" data-swap-button hidden aria-label="Swap weapon">
               ${ICONS.swap}
+              <span class="touch-action-label">Swap</span>
               <span class="key-hint">X</span>
               <span class="action-caption" data-swap-detail></span>
             </button>
             <button type="button" class="touch-button touch-button-mini touch-button-special" data-action="special" aria-label="Artillery strike">
               ${ICONS.strike}
+              <span class="touch-action-label">Strike</span>
               <span class="key-hint">Q</span>
               <span class="action-caption" data-special-detail></span>
             </button>
             <button type="button" class="touch-button touch-button-mini touch-button-repair" data-action="repair" aria-label="Field repair">
               ${ICONS.repair}
+              <span class="touch-action-label">Repair</span>
               <span class="key-hint">R</span>
               <span class="action-caption" data-repair-detail></span>
             </button>
           </div>
           <div class="touch-aim-control" data-zone="aim" aria-label="Aim and fire cannon">
             <div class="touch-stick-shell tank-aim-stick" data-shell data-engaged="false">
-              <div class="touch-stick-ring"></div>
               <div class="touch-stick-knob" data-knob></div>
               <span class="touch-stick-label">Aim / Fire</span>
             </div>
           </div>
           <button type="button" class="touch-button touch-button-fire desktop-fire-button" data-action="fire" aria-label="Fire cannon">
             ${ICONS.fire}
+            <span class="touch-action-label">Fire</span>
             <span class="key-hint">Space</span>
           </button>
         </div>
       </div>
     `;
 
-    const stickDefinitions: Array<{ selector: string; kind: StickBinding['kind']; radius: number }> = [
-      { selector: '[data-zone="drive"]', kind: 'drive', radius: DRIVE_STICK_RADIUS },
-      { selector: '[data-zone="aim"]', kind: 'aim', radius: AIM_STICK_RADIUS },
+    const stickDefinitions: Array<{ selector: string; kind: StickBinding['kind'] }> = [
+      { selector: '[data-zone="drive"]', kind: 'drive' },
+      { selector: '[data-zone="aim"]', kind: 'aim' },
     ];
     for (const definition of stickDefinitions) {
       const zone = this.root.querySelector<HTMLElement>(definition.selector);
@@ -110,7 +108,6 @@ export class TouchControlsOverlay {
 
       const binding: StickBinding = {
         kind: definition.kind,
-        radius: definition.radius,
         zone,
         shell,
         knob,
@@ -128,6 +125,10 @@ export class TouchControlsOverlay {
 
     this.bindButtons();
     window.addEventListener('resize', this.syncVisibility);
+    window.addEventListener('blur', () => this.resetInputs());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.resetInputs();
+    });
     this.syncVisibility();
 
     director.subscribe((snapshot) => {
@@ -153,12 +154,14 @@ export class TouchControlsOverlay {
       this.swapButton.hidden = snapshot.weapon.unlockedCount <= 1;
       this.swapButton.setAttribute('aria-label', `Swap weapon. Active: ${snapshot.weapon.label} level ${snapshot.weapon.level}`);
       if (this.swapDetail) {
-        this.swapDetail.textContent = `${snapshot.weapon.label} L${snapshot.weapon.level} · ${snapshot.tank.ammo}/${snapshot.tank.ammoCapacity}`;
+        this.swapDetail.textContent = `${snapshot.tank.ammo}/${snapshot.tank.ammoCapacity}`;
       }
     }
   }
 
   private readonly syncVisibility = (): void => {
+    // Geometry is cached per gesture; rotation/resizing must release its owner.
+    this.resetInputs();
     const touchLayout = this.touchQuery.matches || this.narrowTouchQuery.matches;
     document.body.dataset.touchMode = touchLayout ? 'true' : 'false';
     this.root.dataset.active = 'true';
@@ -176,12 +179,14 @@ export class TouchControlsOverlay {
     }
   }
 
-  /** Drive stays bottom-left; aim/fire uses the smaller anchored right stick. */
+  /** Independent pointer owners let both anchored sticks work simultaneously. */
   private bindStick(binding: StickBinding): void {
-    const { kind, radius, zone, shell, knob } = binding;
+    const { kind, zone, shell, knob } = binding;
     let pointerId: number | null = null;
     let originX = 0;
     let originY = 0;
+    let radius = 1;
+    let firing = false;
     let aimDeflected = false;
     let lastAimX = 0;
     let lastAimY = 0;
@@ -192,9 +197,8 @@ export class TouchControlsOverlay {
     };
 
     const updateStick = (event: PointerEvent): void => {
-      const rect = zone.getBoundingClientRect();
-      const rawX = event.clientX - rect.left - originX;
-      const rawY = event.clientY - rect.top - originY;
+      const rawX = event.clientX - originX;
+      const rawY = event.clientY - originY;
       const distance = Math.hypot(rawX, rawY);
       const scale = distance > radius && distance > 0 ? radius / distance : 1;
       const knobX = rawX * scale;
@@ -203,19 +207,22 @@ export class TouchControlsOverlay {
       knob.style.setProperty('--stick-x', `${knobX}px`);
       knob.style.setProperty('--stick-y', `${knobY}px`);
       if (kind === 'drive') {
-        this.gamepad.setDriveAxis(knobX / radius, knobY / radius);
+        const strength = Math.max(0, (Math.min(1, distance / radius) - STICK_DEAD_ZONE) / (1 - STICK_DEAD_ZONE));
+        this.gamepad.setDriveAxis(rawX / (distance || 1) * strength, rawY / (distance || 1) * strength);
       } else {
         const aimX = knobX / radius;
         const aimY = knobY / radius;
-        this.gamepad.setAimAxis(aimX, aimY);
-        if (Math.hypot(aimX, aimY) > 0.18) {
+        const amount = Math.hypot(aimX, aimY);
+        if (amount > STICK_DEAD_ZONE) {
           aimDeflected = true;
-          lastAimX = aimX;
-          lastAimY = aimY;
-          this.gamepad.setAction(1, 'fire', true);
-        } else {
-          this.gamepad.setAction(1, 'fire', false);
+          lastAimX = aimX / amount;
+          lastAimY = aimY / amount;
+          this.gamepad.setAimAxis(lastAimX, lastAimY);
         }
+        // A little hysteresis prevents firing flicker near the dead zone.
+        firing = amount > (firing ? 0.22 : 0.32);
+        this.gamepad.setAction(1, 'fire', firing);
+        shell.dataset.firing = String(firing);
       }
     };
 
@@ -237,24 +244,29 @@ export class TouchControlsOverlay {
         return;
       }
 
-      releaseStick();
+      releaseStick(event.type === 'pointerup');
     };
 
-    const releaseStick = (): void => {
-      const fireOnTap = pointerId !== null && kind === 'aim' && !aimDeflected;
+    const releaseStick = (allowTap = false): void => {
+      if (pointerId === null) return;
+      const fireOnTap = allowTap && kind === 'aim' && !aimDeflected;
       window.removeEventListener('pointermove', onWindowMove);
       window.removeEventListener('pointerup', onWindowUp);
       window.removeEventListener('pointercancel', onWindowUp);
 
+      const releasedPointer = pointerId;
       pointerId = null;
+      if (shell.hasPointerCapture(releasedPointer)) shell.releasePointerCapture(releasedPointer);
       if (kind === 'drive') {
         this.gamepad.setDriveAxis(0, 0);
       } else {
         this.gamepad.setAction(1, 'fire', false);
-        if (aimDeflected) {
+        if (allowTap && aimDeflected) {
           // Keep the final non-zero heading even when the finger springs back
           // through the centre during release.
           this.gamepad.setAimAxis(lastAimX, lastAimY);
+        } else if (!allowTap) {
+          this.gamepad.clearAimAxis();
         }
         if (fireOnTap) {
           // A centred tap means "fire at the current heading" without
@@ -263,8 +275,10 @@ export class TouchControlsOverlay {
         }
       }
       aimDeflected = false;
+      firing = false;
 
       shell.dataset.engaged = 'false';
+      shell.dataset.firing = 'false';
       delete shell.dataset.floating;
       knob.style.setProperty('--stick-x', '0px');
       knob.style.setProperty('--stick-y', '0px');
@@ -273,26 +287,27 @@ export class TouchControlsOverlay {
     binding.release = releaseStick;
 
     const startStick = (event: PointerEvent, floating: boolean): void => {
-      if (pointerId !== null) {
+      if (pointerId !== null || this.root.hidden || event.button !== 0) {
         return;
       }
 
       event.preventDefault();
+      event.stopPropagation();
       pointerId = event.pointerId;
-      const rect = zone.getBoundingClientRect();
-      originX = event.clientX - rect.left;
-      originY = event.clientY - rect.top;
       if (floating) {
-        placeShell(originX, originY);
+        const rect = zone.getBoundingClientRect();
+        placeShell(event.clientX - rect.left, event.clientY - rect.top);
         shell.dataset.floating = 'true';
-      } else {
-        // pressing the fixed desktop pad: treat its centre as the origin so the
-        // knob tracks the cursor from where the pad actually sits
-        const shellRect = shell.getBoundingClientRect();
-        originX = shellRect.left + shellRect.width / 2 - rect.left;
-        originY = shellRect.top + shellRect.height / 2 - rect.top;
       }
+      const shellRect = shell.getBoundingClientRect();
+      const knobRect = knob.getBoundingClientRect();
+      originX = shellRect.left + shellRect.width / 2;
+      originY = shellRect.top + shellRect.height / 2;
+      // Match Tank_game_3D: keep the entire nub inside the responsive pad.
+      // Read layout once on press, not on every pointermove.
+      radius = Math.max(1, Math.min(shellRect.width - knobRect.width, shellRect.height - knobRect.height) / 2 - 3);
       shell.dataset.engaged = 'true';
+      shell.setPointerCapture(pointerId);
 
       window.addEventListener('pointermove', onWindowMove, { passive: false });
       window.addEventListener('pointerup', onWindowUp);
@@ -306,6 +321,9 @@ export class TouchControlsOverlay {
       startStick(event, false);
     });
     shell.addEventListener('contextmenu', (event) => event.preventDefault());
+    shell.addEventListener('lostpointercapture', (event) => {
+      if (event.pointerId === pointerId) releaseStick();
+    });
 
     if (kind === 'drive') {
       // Own the whole lower-left area so its touches cannot reach Phaser's
@@ -377,6 +395,7 @@ export class TouchControlsOverlay {
     };
 
     button.addEventListener('pointerdown', (event) => {
+      if (pointerId !== null || this.root.hidden || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
       pointerId = event.pointerId;
@@ -395,7 +414,9 @@ export class TouchControlsOverlay {
     button.addEventListener('contextmenu', (event) => event.preventDefault());
 
     return () => {
+      const releasedPointer = pointerId;
       pointerId = null;
+      if (releasedPointer !== null && button.hasPointerCapture(releasedPointer)) button.releasePointerCapture(releasedPointer);
       button.dataset.pressed = 'false';
       this.gamepad.setAction(1, action, false);
     };

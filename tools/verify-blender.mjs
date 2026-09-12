@@ -33,6 +33,15 @@ try {
     for (let i = 0; i < 300; i++) scene.render();
     const stableCount = scene.children.list.length === initialCount;
     const cover = scene.covers.find(c => c.kind === 'houseOpen');
+    const drawnCoverIds = [];
+    for (const method of ['drawCoverCrate', 'drawCoverBarrel', 'drawCoverBuilding', 'drawCoverRockWall', 'drawCoverHouse']) {
+      const original = scene[method].bind(scene);
+      scene[method] = (graphics, c) => { drawnCoverIds.push(c.id); return original(graphics, c); };
+    }
+    scene.staticLayerDirty = true;
+    scene.render();
+    const restoredCover = scene.covers.every(c => drawnCoverIds.includes(c.id))
+      && !scene.children.list.some(c => c.type === 'Image' && String(c.frame?.name).startsWith('prop-'));
     const soldier = scene.enemies.find(e => e.kind === 'rifleman');
     soldier.shelteredBy = cover.id;
     scene.render();
@@ -40,18 +49,19 @@ try {
     soldier.shelteredBy = undefined;
     soldier.alive = false;
     cover.health = 0;
+    drawnCoverIds.length = 0;
     scene.staticLayerDirty = true;
     scene.render();
     const removed = !scene.blenderSprites.units.get(soldier.id).hull.visible
-      && !scene.blenderSprites.props.get(cover.id).visible;
+      && !drawnCoverIds.includes(cover.id);
     const oldImage = unit.hull;
     director.failMission('Art review retry');
     director.continueFromMission(0);
     scene.render();
     const reset = !oldImage.scene && scene.blenderSprites.units.get('player').hull !== oldImage;
-    return { independent, stableCount, sheltered, removed, reset, units: scene.blenderSprites.units.size, props: scene.blenderSprites.props.size };
+    return { independent, stableCount, sheltered, removed, reset, restoredCover, units: scene.blenderSprites.units.size };
   });
-  for (const key of ['independent', 'stableCount', 'sheltered', 'removed', 'reset']) assert.equal(result[key], true, key);
+  for (const key of ['independent', 'stableCount', 'sheltered', 'removed', 'reset', 'restoredCover']) assert.equal(result[key], true, key);
   const weaponSwitch = await page.evaluate(() => {
     const { scene, director } = window.artReview;
     director.grantWeapon('machineGun');

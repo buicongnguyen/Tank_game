@@ -171,123 +171,6 @@ a {
   pointer-events: none;
 }
 
-.touch-controls-root {
-  z-index: 6;
-  pointer-events: none;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-cluster-right {
-  right: 22px;
-  bottom: 22px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-cluster-left {
-  left: 22px;
-  bottom: 22px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-shell {
-  width: 118px;
-  height: 118px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-ring {
-  inset: 14px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-knob {
-  width: 54px;
-  height: 54px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-label {
-  bottom: 9px;
-  font-size: 0.58rem;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-keys {
-  display: block;
-  position: absolute;
-  left: 50%;
-  top: 38%;
-  transform: translate(-50%, -50%);
-  padding: 5px 9px;
-  border: 1px solid rgba(255, 242, 196, 0.36);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 242, 196, 0.22), rgba(6, 12, 8, 0.52));
-  color: #fff2c4;
-  font-family: var(--font-title);
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.48);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 8px 18px rgba(0, 0, 0, 0.24);
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-action-grid {
-  grid-template-columns: repeat(2, minmax(0, 88px));
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid rgba(255, 242, 196, 0.14);
-  border-radius: 22px;
-  background: rgba(6, 12, 8, 0.34);
-  backdrop-filter: blur(8px);
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-button {
-  min-width: 88px;
-  min-height: 52px;
-  border-radius: 16px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  justify-content: center;
-  align-items: center;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-button-fire {
-  min-width: 96px;
-  min-height: 62px;
-  border-radius: 18px;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-button strong {
-  font-size: 0.62rem;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-button .key-hint {
-  display: block;
-  margin-top: 0;
-  padding: 3px 7px;
-  border: 1px solid rgba(255, 242, 196, 0.42);
-  border-radius: 9px;
-  color: #071009;
-  background: linear-gradient(180deg, #fff2c4, #efb648);
-  font-family: var(--font-title);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.34),
-    0 5px 12px rgba(0, 0, 0, 0.22);
-  text-transform: uppercase;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-button .action-detail {
-  display: block;
-  margin-top: 2px;
-  font-size: 0.58rem;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-stick-keys,
-.touch-controls-root[data-mode='touch'] .touch-button .key-hint {
-  display: none;
-}
-
 @media (min-width: 901px) {
   .viewport-shell {
     display: grid;
@@ -334,197 +217,6 @@ a {
   .viewport-frame {
     height: min(84svh, calc(100svh - 72px));
   }
-}
-
-.touch-controls {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.touch-cluster {
-  position: absolute;
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-}
-
-.touch-cluster-left {
-  left: calc(18px + env(safe-area-inset-left, 0px));
-}
-
-.touch-cluster-right {
-  right: calc(18px + env(safe-area-inset-right, 0px));
-}
-
-.touch-stick-shell {
-  position: relative;
-  width: 156px;
-  height: 156px;
-  border-radius: 50%;
-  pointer-events: auto;
-  touch-action: none;
-  background:
-    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.14), transparent 38%),
-    rgba(6, 12, 8, 0.42);
-  border: 1px solid rgba(255, 242, 196, 0.18);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 14px 36px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(10px);
-}
-
-.touch-stick-ring {
-  position: absolute;
-  inset: 18px;
-  border-radius: 50%;
-  border: 1px dashed rgba(255, 242, 196, 0.16);
-}
-
-.touch-stick-ring::before,
-.touch-stick-ring::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  background: rgba(255, 242, 196, 0.08);
-  transform: translate(-50%, -50%);
-}
-
-.touch-stick-ring::before {
-  width: 1px;
-  height: 82%;
-}
-
-.touch-stick-ring::after {
-  width: 82%;
-  height: 1px;
-}
-
-.touch-stick-knob {
-  --stick-x: 0px;
-  --stick-y: 0px;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 70px;
-  height: 70px;
-  border-radius: 50%;
-  transform: translate(calc(-50% + var(--stick-x)), calc(-50% + var(--stick-y)));
-  transition: transform 110ms ease-out;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent 38%),
-    linear-gradient(180deg, rgba(239, 182, 72, 0.9), rgba(170, 103, 24, 0.9));
-  border: 1px solid rgba(255, 242, 196, 0.36);
-  box-shadow:
-    inset 0 2px 6px rgba(255, 255, 255, 0.12),
-    0 8px 18px rgba(0, 0, 0, 0.3);
-}
-
-.touch-stick-shell[data-engaged='true'] .touch-stick-knob {
-  transition: none;
-}
-
-.touch-stick-label {
-  position: absolute;
-  inset: auto 0 16px;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.68rem;
-  color: var(--muted);
-}
-
-.touch-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 88px));
-  gap: 12px;
-  pointer-events: none;
-}
-
-.touch-button {
-  min-width: 88px;
-  min-height: 88px;
-  padding: 0 10px;
-  display: grid;
-  place-items: center;
-  border-radius: 24px;
-  border: 1px solid rgba(255, 242, 196, 0.2);
-  pointer-events: auto;
-  touch-action: none;
-  color: var(--paper);
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.14), transparent 36%),
-    rgba(6, 12, 8, 0.48);
-  backdrop-filter: blur(10px);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 12px 30px rgba(0, 0, 0, 0.26);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.touch-button strong {
-  font-size: 0.82rem;
-  line-height: 1.1;
-}
-
-.touch-button span {
-  display: block;
-  margin-top: 3px;
-  font-family: 'Bahnschrift', 'Trebuchet MS', sans-serif;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #fff2c4;
-}
-
-.touch-button-fire {
-  min-width: 98px;
-  min-height: 98px;
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.16), transparent 38%),
-    linear-gradient(180deg, rgba(239, 182, 72, 0.48), rgba(94, 51, 17, 0.72));
-  border-color: rgba(239, 182, 72, 0.34);
-}
-
-.touch-button-special {
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.16), transparent 38%),
-    linear-gradient(180deg, rgba(255, 132, 95, 0.28), rgba(90, 24, 20, 0.76));
-  border-color: rgba(255, 132, 95, 0.28);
-}
-
-.touch-button-special[data-cooldown='true'] {
-  filter: saturate(0.7);
-  opacity: 0.82;
-}
-
-.touch-button[data-pressed='true'] {
-  transform: scale(0.95);
-  border-color: rgba(255, 242, 196, 0.44);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 8px 18px rgba(0, 0, 0, 0.22);
-}
-
-.touch-rotate-hint {
-  display: none;
-  position: absolute;
-  left: 50%;
-  bottom: calc(188px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 242, 196, 0.18);
-  background: rgba(6, 12, 8, 0.82);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.66rem;
-  white-space: nowrap;
-  backdrop-filter: blur(10px);
 }
 
 .hud-block {
@@ -1457,59 +1149,6 @@ a {
     height: 6px;
   }
 
-  .touch-cluster {
-    bottom: max(36px, calc(16px + env(safe-area-inset-bottom, 0px)));
-  }
-
-  .touch-stick-shell {
-    width: 118px;
-    height: 118px;
-  }
-
-  .touch-stick-knob {
-    width: 54px;
-    height: 54px;
-  }
-
-  .touch-stick-ring {
-    inset: 14px;
-  }
-
-  .touch-stick-label {
-    bottom: 9px;
-    font-size: 0.6rem;
-  }
-
-  .touch-action-grid {
-    grid-template-columns: repeat(2, minmax(0, 48px));
-    gap: 6px;
-  }
-
-  .touch-button {
-    min-width: 48px;
-    min-height: 48px;
-    border-radius: 14px;
-    padding: 0 4px;
-  }
-
-  .touch-button-fire {
-    min-width: 54px;
-    min-height: 54px;
-    border-radius: 16px;
-  }
-
-  .touch-button strong {
-    font-size: 0.55rem;
-  }
-
-  .touch-button span {
-    margin-top: 1px;
-    font-size: 0.44rem;
-  }
-
-  .touch-rotate-hint {
-    display: none;
-  }
 }
 
 @media (orientation: portrait) and (max-width: 900px) {
@@ -1623,52 +1262,6 @@ a {
     height: 4px;
   }
 
-  .touch-cluster-left {
-    left: max(8px, env(safe-area-inset-left, 0px));
-  }
-
-  .touch-cluster-right {
-    right: max(8px, env(safe-area-inset-right, 0px));
-  }
-
-  .touch-cluster {
-    bottom: max(48px, calc(24px + env(safe-area-inset-bottom, 0px)));
-  }
-
-  .touch-stick-shell {
-    width: 96px;
-    height: 96px;
-  }
-
-  .touch-stick-knob {
-    width: 44px;
-    height: 44px;
-  }
-
-  .touch-action-grid {
-    grid-template-columns: repeat(2, minmax(0, 38px));
-    gap: 4px;
-  }
-
-  .touch-button {
-    min-width: 38px;
-    min-height: 38px;
-    border-radius: 11px;
-  }
-
-  .touch-button-fire {
-    min-width: 42px;
-    min-height: 42px;
-    border-radius: 12px;
-  }
-
-  .touch-button strong {
-    font-size: 0.44rem;
-  }
-
-  .touch-button span {
-    font-size: 0.36rem;
-  }
 }
 
 @media (orientation: landscape) and (max-width: 960px) {
@@ -1796,26 +1389,6 @@ a {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.2;
-}
-
-.tank-aim-cluster {
-  right: calc(156px + env(safe-area-inset-right, 0px));
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-}
-
-.tank-aim-stick {
-  width: 126px;
-  height: 126px;
-}
-
-.tank-aim-stick .touch-stick-knob {
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent 38%),
-    linear-gradient(180deg, rgba(126, 215, 221, 0.9), rgba(28, 93, 106, 0.9));
-}
-
-.tank-action-grid {
-  grid-template-columns: repeat(2, minmax(0, 72px));
 }
 
 .tank-overlay-card {
@@ -1999,42 +1572,12 @@ a {
     font-size: 0.48rem;
   }
 
-  .tank-aim-cluster {
-    right: max(74px, calc(78px + env(safe-area-inset-right, 0px)));
-    bottom: max(48px, calc(24px + env(safe-area-inset-bottom, 0px)));
-  }
-
-  .tank-aim-stick {
-    width: 84px;
-    height: 84px;
-  }
-
-  .tank-aim-stick .touch-stick-knob {
-    width: 38px;
-    height: 38px;
-  }
-
   .upgrade-grid {
     grid-template-columns: 1fr;
   }
 
   .upgrade-card {
     min-height: 82px;
-  }
-}
-
-@media (orientation: portrait) and (max-width: 900px) {
-  .tank-aim-cluster {
-    right: max(58px, calc(62px + env(safe-area-inset-right, 0px)));
-  }
-
-  .tank-aim-stick {
-    width: 70px;
-    height: 70px;
-  }
-
-  .tank-aim-stick .touch-stick-label {
-    display: none;
   }
 }
 
@@ -2110,310 +1653,235 @@ a {
   }
 }
 
-/* ==========================================================================
-   Mobile touch controls. Movement is anchored at bottom-left, matching
-   rambo_game; taps on the unobstructed battlefield aim the turret.
-   ========================================================================== */
-
+/* Tank_game_3D-inspired controls; keep mouse controls available on desktop. */
+.touch-controls-root {
+  --pad-size: 116px;
+  --pad-inset: 16px;
+  --pad-bottom: 16px;
+  z-index: 6;
+  pointer-events: none;
+}
+.touch-controls-root[data-mode='touch'] {
+  --pad-bottom: 26px;
+}
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .touch-zone {
   position: absolute;
-  top: 26%;
   bottom: 0;
   pointer-events: none;
   touch-action: none;
 }
-
 .touch-zone-drive {
   left: 0;
   width: 46%;
   top: 50%;
 }
-
-.touch-controls-root[data-mode='touch'] .touch-zone {
-  pointer-events: auto;
-}
-
+/* The reserved lower-left region never becomes a battlefield aim target. */
 .touch-controls-root[data-mode='touch'] .touch-zone-drive {
   pointer-events: auto;
 }
-
-.touch-controls-root[data-mode='touch'] .touch-stick-shell {
+.touch-stick-shell {
   position: absolute;
-  left: var(--origin-x, 50%);
-  top: var(--origin-y, 60%);
-  transform: translate(-50%, -50%);
-  width: 148px;
-  height: 148px;
-  margin: 0;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
-  pointer-events: none;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-stick-shell[data-engaged='true'] {
-  opacity: 1;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
-  left: max(18px, env(safe-area-inset-left, 0px));
-  top: auto;
-  bottom: max(12px, calc(4px + env(safe-area-inset-bottom, 0px)));
-  transform: none;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-stick-knob {
-  width: 62px;
-  height: 62px;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-stick-label,
-.touch-controls-root[data-mode='touch'] .touch-stick-keys {
-  display: none;
-}
-
-/* ---- Action cluster ------------------------------------------------------ */
-
-.touch-actions {
-  position: absolute;
-  right: calc(12px + env(safe-area-inset-right, 0px));
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 16px;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.touch-action-mini {
-  display: grid;
-  grid-template-columns: repeat(2, auto);
-  gap: 10px 12px;
-  pointer-events: none;
-}
-
-.touch-aim-control {
-  position: relative;
-  width: 96px;
-  height: 96px;
+  width: var(--pad-size);
+  height: var(--pad-size);
+  border-radius: 50%;
+  border: 1px solid #c5e0c570;
+  background: #162d3255;
   pointer-events: auto;
   touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-touch-callout: none;
 }
-
-.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-shell {
-  position: relative;
-  left: auto;
-  top: auto;
-  width: 96px;
-  height: 96px;
-  transform: none;
-  opacity: 1;
-  pointer-events: auto;
+.tank-drive-stick {
+  left: calc(var(--pad-inset) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--pad-bottom) + env(safe-area-inset-bottom, 0px));
 }
-
-.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-ring {
-  inset: 12px;
-}
-
-.touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-knob {
-  width: 40px;
-  height: 40px;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent 38%),
-    linear-gradient(180deg, rgba(126, 215, 221, 0.9), rgba(28, 93, 106, 0.9));
-}
-
-.touch-controls-root[data-mode='touch'] .desktop-fire-button,
-.touch-controls-root[data-mode='desktop'] .touch-aim-control {
-  display: none;
-}
-
-.touch-controls-root .touch-button-mini {
-  position: relative;
-  width: 50px;
-  height: 50px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  overflow: visible;
-  pointer-events: auto;
-}
-
-.touch-controls-root .touch-button-fire {
-  position: relative;
-  width: 72px;
-  height: 72px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  pointer-events: auto;
-}
-
-.touch-button svg {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
-  color: var(--paper);
-  pointer-events: none;
-}
-
-.touch-button-fire svg {
-  width: 32px;
-  height: 32px;
-}
-
-.touch-button-repair {
-  background:
-    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.16), transparent 38%),
-    linear-gradient(180deg, rgba(162, 219, 124, 0.26), rgba(24, 70, 32, 0.76));
-  border-color: rgba(162, 219, 124, 0.3);
-}
-
-.action-caption {
+.touch-stick-knob {
+  --stick-x: 0px;
+  --stick-y: 0px;
   position: absolute;
   left: 50%;
-  top: calc(100% + 2px);
-  transform: translateX(-50%);
-  font-size: 0.44rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #c3e4ca66;
+  border: 1px solid #c5e0c5aa;
+  transform: translate(calc(-50% + var(--stick-x)), calc(-50% + var(--stick-y)));
   pointer-events: none;
 }
-
-.touch-button[data-cooldown='true'] svg {
-  opacity: 0.45;
-}
-
-/* ---- Desktop keeps a fixed on-screen reference pad ----------------------- */
-
-.touch-controls-root[data-mode='desktop'] .touch-zone {
-  pointer-events: none;
-}
-
-.touch-controls-root[data-mode='desktop'] .touch-stick-shell {
+.touch-stick-label {
   position: absolute;
-  left: auto;
-  top: auto;
-  bottom: 16px;
-  transform: none;
-  width: 118px;
-  height: 118px;
-  opacity: 1;
-  pointer-events: auto;
+  inset: auto 0 13px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #d6efd4;
+  text-transform: uppercase;
+  pointer-events: none;
 }
-
-.touch-controls-root[data-mode='desktop'] .touch-zone-drive .touch-stick-shell {
-  left: 22px;
-  right: auto;
+.touch-stick-keys {
+  position: absolute;
+  inset: 11px 0 auto;
+  text-align: center;
+  font-size: 9px;
+  color: #d6efd4;
+  pointer-events: none;
 }
-
-/* A finger on a touchscreen desktop still gets the floating pad. */
+.touch-controls-root[data-mode='touch'] .touch-stick-keys,
+.touch-controls-root[data-mode='touch'] .key-hint {
+  display: none;
+}
+.touch-stick-shell[data-engaged='true'] {
+  border-color: #c9f8db;
+  background: #20473b99;
+  box-shadow: 0 0 0 3px #b5f0cb18;
+}
+.touch-stick-shell[data-engaged='true'] .touch-stick-knob {
+  background: #b5f0cbba;
+}
+.tank-aim-stick[data-firing='true'] {
+  border-color: #ffd39a;
+  box-shadow: 0 0 0 3px #ffc57b26, inset 0 0 24px #ffc57b20;
+}
+.tank-aim-stick[data-firing='true'] .touch-stick-knob {
+  background: #ffd39acc;
+}
+/* A finger on a touchscreen desktop can still use a floating drive pad. */
 .touch-controls-root[data-mode='desktop'] .touch-stick-shell[data-floating='true'] {
-  left: var(--origin-x, 50%);
-  top: var(--origin-y, 50%);
-  right: auto;
+  left: var(--origin-x);
+  top: var(--origin-y);
   bottom: auto;
   transform: translate(-50%, -50%);
 }
-
-.touch-controls-root[data-mode='desktop'] .touch-actions {
-  gap: 20px;
+.touch-actions {
+  position: absolute;
+  right: calc(var(--pad-inset) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--pad-bottom) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 2;
 }
-
-.touch-controls-root[data-mode='desktop'] .action-caption {
-  font-size: 0.5rem;
+.touch-action-mini {
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
 }
-
-.touch-controls-root[data-mode='desktop'] .touch-button .key-hint {
+.touch-button {
+  position: relative;
+  width: 76px;
+  min-height: 68px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 3px;
+  border: 1px solid #85978766;
+  background: #14262be8;
+  color: #d6efd4;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+}
+.touch-button[hidden] { display: none; }
+.touch-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  pointer-events: none;
+}
+.touch-action-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.action-caption {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: #aac0ac;
+  pointer-events: none;
+}
+.touch-button .key-hint {
+  padding: 1px 4px;
+  border: 1px solid #b5f0cb55;
+  color: #b5f0cb;
+  font-size: 9px;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.touch-button[data-cooldown='true'] svg { opacity: .45; }
+.touch-button[data-pressed='true'] {
+  border-color: #c9f8db;
+  background: #365349;
+}
+.touch-button-fire { border-color: #ffd39a77; }
+.touch-aim-control {
+  position: relative;
+  width: var(--pad-size);
+  height: var(--pad-size);
+  pointer-events: auto;
+  touch-action: none;
+}
+.tank-aim-stick { inset: 0; }
+.touch-controls-root[data-mode='desktop'] .touch-aim-control,
+.touch-controls-root[data-mode='touch'] .desktop-fire-button {
+  display: none;
+}
+/* Matching left/right pads; compact actions sit between the thumbs. */
+.touch-controls-root[data-mode='touch'] .touch-actions {
+  inset: 0;
+  display: block;
+}
+.touch-controls-root[data-mode='touch'] .touch-aim-control {
+  position: absolute;
+  right: calc(var(--pad-inset) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--pad-bottom) + env(safe-area-inset-bottom, 0px));
+}
+.touch-controls-root[data-mode='touch'] .touch-action-mini {
   position: absolute;
   left: 50%;
-  bottom: -16px;
+  bottom: calc(var(--pad-bottom) + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
-  margin: 0;
-  padding: 2px 6px;
-  font-size: 0.56rem;
+  flex-direction: column;
+  gap: 4px;
 }
-
-.touch-controls-root[data-mode='desktop'] .touch-button-mini .key-hint {
-  bottom: -15px;
+.touch-controls-root[data-mode='touch'] .touch-button-mini {
+  width: 60px;
+  min-height: 48px;
+  padding: 4px;
 }
-
-.touch-controls-root[data-mode='desktop'] .action-caption {
-  top: calc(100% + 18px);
+@media (max-width: 700px), (orientation: landscape) and (max-height: 600px) {
+  .touch-controls-root { --pad-size: 106px; }
+  .touch-controls-root[data-mode='touch'] { --pad-bottom: 16px; }
+  .touch-controls-root[data-mode='desktop'] .touch-actions { flex-direction: column; }
+  .touch-controls-root[data-mode='desktop'] .touch-action-mini {
+    display: grid;
+    grid-template-columns: repeat(2, 60px);
+    gap: 6px;
+  }
+  .touch-controls-root[data-mode='desktop'] .touch-button { width: 60px; }
 }
-
-/* ---- Small phones -------------------------------------------------------- */
-
-@media (max-width: 700px), (orientation: portrait) and (max-width: 900px) {
-  .touch-controls-root[data-mode='touch'] .touch-stick-shell {
-    width: 124px;
-    height: 124px;
-  }
-
-  .touch-controls-root[data-mode='touch'] .touch-stick-knob {
-    width: 54px;
-    height: 54px;
-  }
-
-  .touch-controls-root[data-mode='touch'] .touch-zone-drive .touch-stick-shell {
-    left: max(8px, env(safe-area-inset-left, 0px));
-    bottom: max(8px, calc(2px + env(safe-area-inset-bottom, 0px)));
-  }
-
-  .touch-aim-control,
-  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-shell {
-    width: 80px;
-    height: 80px;
-  }
-
-  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-ring {
-    inset: 10px;
-  }
-
-  .touch-controls-root[data-mode='touch'] .touch-aim-control .touch-stick-knob {
-    width: 34px;
-    height: 34px;
-  }
-
-  .touch-controls-root .touch-button-mini {
-    width: 44px;
-    height: 44px;
-  }
-
-  .touch-controls-root .touch-button-fire {
-    width: 62px;
-    height: 62px;
-  }
-
-  .touch-button svg {
-    width: 21px;
-    height: 21px;
-  }
-
-  .touch-button-fire svg {
-    width: 27px;
-    height: 27px;
-  }
-
-  .touch-actions {
-    gap: 13px;
-  }
-
-  .touch-action-mini {
-    gap: 9px 10px;
-  }
+@media (orientation: portrait) {
+  .touch-controls-root[data-mode='touch'] { --pad-bottom: 26px; }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .touch-controls-root[data-mode='touch'] .touch-action-mini { flex-direction: row; }
 }
 
 /* ---- Class picker, shop and economy HUD --------------------------------- */

@@ -804,3 +804,82 @@ repository so future asset builds do not depend on that checkout.
   deployment using `ART_RELEASE_URL`.
 - Publish the committed PNG/JSON assets with the existing `main` GitHub Pages
   workflow. Blender is not needed on CI or the user's device.
+
+---
+
+## Request 20: Restore readable cover and adopt 3D-style controls (2026-09-12)
+
+### Agreed plan
+
+1. Restore the original 2D environment drawings while retaining Blender units
+   and weapon attachments.
+2. Use Tank_game_3D's flat translucent, matching pads and size-aware stick travel.
+3. Preserve independent movement/aim, battlefield tap-to-aim/fire, and the
+   movement-only lower-left region. Keep existing clickable desktop controls;
+   the user has not selected the 3D game's desktop joystick-hiding policy.
+4. Review input ownership and responsive layout, add regression tests, and
+   validate the production build without changing combat rules or balance.
+
+### Implemented
+
+- Restored `drawCoverCrate`, `drawCoverBarrel`, `drawCoverBuilding`,
+  `drawCoverRockWall` and `drawCoverHouse` as the normal render path. Roof seams,
+  windows, wood braces, stone silhouettes, entrances and damage annotations are
+  back. Removed the unused Blender cover image cache and rendering method.
+- Blender tanks, infantry, weapon attachments, escort transport and shop
+  previews are unchanged. Atlas/source cover frames remain available for future
+  art work but are not displayed. Cover is still cached behind the dirty flag.
+- Consolidated the accumulated control CSS rules. Mobile gets matching 106px
+  pads on phones/short landscapes, 116px on larger layouts, 46px nubs, visible
+  Drive/Aim-Fire labels, mint engagement feedback and amber firing feedback.
+  Safe-area-aware bottom offsets match; compact action buttons sit between
+  the sticks, stacked in portrait and in a row in short landscape.
+- Desktop retains its clickable drive pad and fire/action buttons, with the
+  same flat palette and readable labels/key hints. Removed the old blurred,
+  gradient-heavy pads, oversized key badges, conflicting size rules and tiny
+  overflowing action captions. Full selected-weapon identity remains in the
+  HUD and the swap button's accessible label; its small caption shows ammo.
+- Compute travel as half the pad-minus-nub diameter minus a 3px inset. Cache
+  geometry once per gesture instead of measuring layout on every movement.
+  A radial 15% resting dead zone preserves proportional drive speed. Aim fire
+  engages above 32% and stops below 22%, avoiding threshold flicker.
+- Each stick captures and tracks its own pointer. A second finger can aim/fire,
+  and a third can swap weapons, without stopping the drive finger. Normal
+  centre taps still fire once at the current heading.
+- Cancel/lost capture no longer counts as a tap. Resize, blur, visibility loss
+  and leaving gameplay release active gestures. Buttons reject a second owner
+  or a non-primary mouse button. A new battlefield gesture clears the retained
+  stick aim axis so it can actually take over the turret heading.
+
+### Review and verification
+
+- TypeScript and Vite production build passed; only the pre-existing large
+  Phaser bundle warning remains. CSS output fell from 52.88 kB to 45.08 kB.
+- Art regression checks passed: all six cover types use original draw methods,
+  dead/destroyed cover is omitted, sheltered soldiers are hidden, Blender hull
+  and turret rotations stay independent, image counts remain stable, retry
+  cleans up images, and twin/single/drone weapon appearance switching works.
+- Control checks use Chromium's real touch dispatch, not only synthetic DOM
+  events. Tested 320x568, 390x844, 640x360, 844x390 and 1024x768 touch layouts,
+  plus 1366x900 and 640x480 mouse/keyboard layouts. Checked target bounds and
+  non-overlap, visible labels, radial nub containment, two-stick operation,
+  releasing aim while driving, third-finger weapon swapping, actual turret
+  rotation/ammo use on battlefield tap, movement-zone isolation, centre tap,
+  cancellation, lost capture, rotation and blur cleanup.
+- `tools/verify-blender.mjs`, `tools/verify-controls.mjs`, and the production
+  `/Tank_game/` smoke test (`tools/verify-release.mjs`) passed with no page errors.
+  The production test verifies the atlas hash plus startup/pause/resume on
+  desktop and touch. The test fixture remains excluded from the release build.
+- Screenshots: ignored `artifacts/control-review/` and `artifacts/blender-review/`.
+
+### Claude / device review focus
+
+- Physically test thumb comfort and notch/home-indicator safe areas on iOS and
+  Android; emulated touch checks cannot prove physical-device ergonomics.
+- Existing keyboard/mouse bindings, weapon balance, map collisions, economy and
+  stage logic were intentionally not redesigned.
+- Implementation was verified locally on September 12. The September 13
+  follow-up authorizes committing, pushing over Git SSH and publishing through
+  the existing GitHub Pages workflow. Release smoke checks now compare the
+  loaded JavaScript/CSS bundle hashes as well as the unchanged Blender atlas,
+  so the previous deployment cannot pass as this artwork/control release.

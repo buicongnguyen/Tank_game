@@ -5,12 +5,14 @@ import { GameDirector } from '../src/game/core/GameDirector';
 import { VirtualGamepad } from '../src/game/core/VirtualGamepad';
 import { BattleScene } from '../src/game/scenes/BattleScene';
 import { InterfaceController } from '../src/game/ui/InterfaceController';
+import { TouchControlsOverlay } from '../src/game/ui/TouchControls';
 import { STAGES } from '../src/game/data/stages';
 
 document.querySelector('#app').innerHTML = `
   <div class="shell"><header class="masthead"><h1>Steel Front · Blender sprite review</h1></header>
   <main class="viewport-shell"><div class="viewport-frame"><div id="game-root" class="game-root"></div>
-  <div id="hud-root" class="hud-root"></div><div id="overlay-root" class="overlay-root"></div></div></main>
+  <div id="hud-root" class="hud-root"></div><div id="overlay-root" class="overlay-root"></div>
+  <div id="touch-controls-root" class="touch-controls-root" hidden></div></div></main>
   <section id="intel-root" class="intel-grid"></section></div>`;
 const mission = {
   ...STAGES[0], worldWidth: 1280, worldHeight: 720,
@@ -30,15 +32,18 @@ const ui = new InterfaceController({
   hudRoot: document.querySelector('#hud-root'), overlayRoot: document.querySelector('#overlay-root'),
   intelRoot: document.querySelector('#intel-root'),
 }, director);
-const scene = new BattleScene(director, snapshot => ui.setHud(snapshot), gamepad, undefined, () => false);
+const controlReview = new URLSearchParams(location.search).has('controls');
+const controls = controlReview ? new TouchControlsOverlay(document.querySelector('#touch-controls-root'), director, gamepad) : undefined;
+const scene = new BattleScene(director, snapshot => { ui.setHud(snapshot); controls?.setHud(snapshot); }, gamepad, undefined, () => false);
 const game = new Phaser.Game({
   type: Phaser.AUTO, parent: 'game-root', width: 1280, height: 720,
   backgroundColor: '#0a0f0b', scene: [scene],
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scale: { mode: controlReview ? Phaser.Scale.RESIZE : Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  input: { activePointers: 3 },
   audio: { noAudio: true },
 });
 window.artReview = {
-  game, scene, director,
+  game, scene, director, gamepad, controls,
   pose() {
     game.loop.sleep();
     scene.player.x = 145;

@@ -10,6 +10,10 @@ const { chromium } = process.argv[2] ? require(resolve(process.argv[2])) : requi
 const hash = data => createHash('sha256').update(data).digest('hex');
 const dist = resolve('dist');
 const atlasHash = hash(await readFile(resolve(dist, 'art/blender/combat.png')));
+const builtHtml = await readFile(resolve(dist, 'index.html'), 'utf8');
+const bundleNames = [...builtHtml.matchAll(/assets\/([^"']+\.(?:js|css))/g)].map(match => match[1]);
+assert.ok(bundleNames.some(name => name.endsWith('.js')) && bundleNames.some(name => name.endsWith('.css')));
+const bundleHashes = await Promise.all(bundleNames.map(async name => ({ name, hash: hash(await readFile(resolve(dist, 'assets', name))) })));
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 let server;
 let browser;
@@ -41,7 +45,12 @@ try {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const atlasResponse = page.waitForResponse(response => response.url().endsWith('/art/blender/combat.png'));
+    const bundleResponses = bundleHashes.map(bundle => page.waitForResponse(response => response.url().endsWith(`/assets/${bundle.name}`)));
     await page.goto(url);
+    for (const [index, response] of (await Promise.all(bundleResponses)).entries()) {
+      assert.equal(response.status(), 200);
+      assert.equal(hash(await response.body()), bundleHashes[index].hash, `Deployed ${bundleHashes[index].name} must match this build`);
+    }
     const response = await atlasResponse;
     assert.equal(response.status(), 200);
     assert.equal(hash(await response.body()), atlasHash, 'The loaded atlas must match this build');
@@ -51,7 +60,7 @@ try {
     const device = mobile ? 'mobile' : 'desktop';
     await page.screenshot({ path: `artifacts/blender-review/release-${device}.png` });
     assert.deepEqual(errors, []);
-    results.push({ device, atlasStatus: response.status(), atlasMatchesBuild: true, startPauseResume: true, pageErrors: errors });
+    results.push({ device, atlasStatus: response.status(), atlasMatchesBuild: true, bundlesMatchBuild: true, startPauseResume: true, pageErrors: errors });
     await page.close();
   }
   console.log(JSON.stringify({ url, results }, null, 2));

@@ -3,6 +3,12 @@
 The game remains a top-down Phaser game. Blender runs only while authoring art;
 players download PNG images, not models or a 3D engine.
 
+After the September 12 visual review, houses, crates, barrels, concrete buildings
+and rock walls use their original procedural 2D artwork again. Blender tanks,
+infantry, weapons, the escorted transport and shop previews remain enabled.
+The six unused cover frames and their source models are retained for art
+experiments, but the game no longer creates or draws Blender cover Images.
+
 ## Art direction and source
 
 Selected from the user's sibling `Tank_game_3D` project: its original `tank`,
@@ -53,7 +59,7 @@ Outputs in `public/art/blender/`:
   a left-center origin and the existing barrel dimensions and aim angle.
 - The map is still flat: no camera projection, collision, damage, prices,
   vehicle statistics, or projectile simulation changes.
-- Images are reused per entity. Static props update only when cover is dirty;
+- Images are reused per unit. Original vector cover updates only when dirty;
   off-screen/dead/sheltered units hide their images; retry and scene shutdown
   destroy previous image objects. The single atlas occupies about 5.6 MiB of
   uncompressed RGBA texture memory, before any driver overhead.
@@ -80,6 +86,12 @@ Set `ART_REVIEW_URL` if your local server uses a different port. Screenshots go
 to ignored `artifacts/blender-review/`. Checks cover aiming pivots, object reuse,
 weapon changes, shelter/death/destruction, retry cleanup, missing-asset fallback,
 the shop on a phone viewport, and touch controls in the normal game entry point.
+
+`node tools/verify-controls.mjs` (with the same optional Playwright directory)
+tests the matching 3D-style pads, size-aware nub travel, independent multitouch,
+weapon swapping, battlefield tap-to-fire, cancellation and resize/blur cleanup
+at seven phone/tablet/desktop sizes. Its fixture is `tools/art-review.html?controls`;
+screenshots are saved to ignored `artifacts/control-review/`.
 
 After `npm run build`, verify the actual production bundle at the GitHub Pages
 subpath with `node tools/verify-release.mjs` (the same optional Playwright package

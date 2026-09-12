@@ -13,7 +13,6 @@ interface UnitVisual {
 /** One atlas, reused Images, no 3D renderer or per-frame texture generation. */
 export class BlenderSprites {
   private readonly units = new Map<string, UnitVisual>();
-  private readonly props = new Map<string, Phaser.GameObjects.Image>();
   private readonly weapons = new Map<string, Phaser.GameObjects.Image>();
   private transport?: Phaser.GameObjects.Image;
   private readonly scene: Phaser.Scene;
@@ -60,36 +59,15 @@ export class BlenderSprites {
     return true;
   }
 
-  /** Called only when cover geometry is dirty, never for every frame. */
-  beginCoverUpdate(): void {
-    for (const prop of this.props.values()) prop.setVisible(false);
-  }
-
-  drawProp(id: string, kind: string, x: number, y: number, width: number, height: number, health: number): boolean {
-    const frame = `prop-${kind}`;
-    if (!this.hasFrame(frame)) return false;
-    let image = this.props.get(id);
-    if (!image) {
-      image = this.scene.add.image(x, y, ATLAS, frame).setDepth(1.8);
-      this.props.set(id, image);
-    }
-    image.setFrame(frame).setPosition(x, y).setDisplaySize(width, height).setVisible(true);
-    const brightness = Math.round(255 * (.68 + .32 * Math.max(0, Math.min(1, health))));
-    image.setTint(Phaser.Display.Color.GetColor(brightness, brightness, brightness));
-    return true;
-  }
-
   reset(): void {
     for (const visual of this.units.values()) {
       visual.hull.destroy();
       visual.turret.destroy();
     }
-    for (const prop of this.props.values()) prop.destroy();
     for (const image of this.weapons.values()) image.destroy();
     this.transport?.destroy();
     this.transport = undefined;
     this.units.clear();
-    this.props.clear();
     this.weapons.clear();
   }
 

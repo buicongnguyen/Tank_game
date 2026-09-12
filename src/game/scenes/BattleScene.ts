@@ -677,6 +677,8 @@ export class BattleScene extends Phaser.Scene {
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
     const pointTurretAtPointer = (pointer: Phaser.Input.Pointer): void => {
+      // A new battlefield gesture takes over from the stick's retained heading.
+      this.gamepad.clearAimAxis();
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.lastPointerWorld = { x: world.x, y: world.y };
 
@@ -2879,7 +2881,6 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (this.staticLayerDirty) {
-      this.blenderSprites?.beginCoverUpdate();
       terrainGraphics.clear();
       coverGraphics.clear();
       this.drawTerrain(terrainGraphics, mission);
@@ -3043,17 +3044,7 @@ export class BattleScene extends Phaser.Scene {
         continue;
       }
 
-      const spriteDrawn = this.blenderSprites?.drawProp(cover.id, cover.kind, cover.x, cover.y,
-        cover.width, cover.height, cover.health / cover.maxHealth) ?? false;
-      if (spriteDrawn) {
-        if (cover.kind === 'houseOpen' || cover.kind === 'houseSealed') {
-          this.drawHouseAnnotations(graphics, cover);
-        } else {
-          this.drawCoverHealthBar(graphics, cover, cover.y - cover.height * .5 - 10);
-        }
-        continue;
-      }
-
+      // Keep the original, readable 2D cover art; Blender is for units/weapons.
       if (cover.kind === 'houseOpen' || cover.kind === 'houseSealed') {
         this.drawCoverHouse(graphics, cover);
         continue;
