@@ -54,6 +54,14 @@ export class InterfaceController {
     this.setPerformanceModeEnabled = options.setPerformanceModeEnabled;
     this.sessionSnapshot = director.getSnapshot();
 
+    // Local/offline asset failures retain the original unit silhouette.
+    this.overlayRoot.addEventListener('error', (event) => {
+      const target = event.target;
+      if (target instanceof HTMLImageElement && target.classList.contains('blender-unit-preview')) {
+        target.classList.add('is-unavailable');
+      }
+    }, true);
+
     // delegated so the frequently re-rendered HUD markup never needs re-binding
     this.hudRoot.addEventListener('click', (event) => {
       const trigger = (event.target as HTMLElement | null)?.closest('[data-pause]');
@@ -562,6 +570,11 @@ export class InterfaceController {
   }
 
   private renderUnitSilhouette(playerClass: PlayerClassId): string {
+    return `<img class="blender-unit-preview" src="${import.meta.env.BASE_URL}art/blender/unit-${playerClass}.png"
+      width="384" height="256" alt="${PLAYER_CLASSES[playerClass].label}" decoding="async">${this.renderUnitFallbackSilhouette(playerClass)}`;
+  }
+
+  private renderUnitFallbackSilhouette(playerClass: PlayerClassId): string {
     if (PLAYER_CLASSES[playerClass].infantry) {
       const launcher = playerClass === 'rocketeer';
       return `

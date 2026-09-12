@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { BlenderSprites } from '../render/BlenderSprites';
 import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
@@ -579,6 +580,7 @@ export class BattleScene extends Phaser.Scene {
   private underlayGraphics?: Phaser.GameObjects.Graphics;
   private coverGraphics?: Phaser.GameObjects.Graphics;
   private graphics?: Phaser.GameObjects.Graphics;
+  private blenderSprites?: BlenderSprites;
   /** Separate additive layer so blasts glow instead of just painting over. */
   private glow?: Phaser.GameObjects.Graphics;
   private keys?: Record<string, Phaser.Input.Keyboard.Key>;
@@ -648,7 +650,13 @@ export class BattleScene extends Phaser.Scene {
     this.effectsEnabled = effectsEnabled;
   }
 
+  preload(): void {
+    BlenderSprites.preload(this);
+  }
+
   create(): void {
+    this.blenderSprites = new BlenderSprites(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.blenderSprites?.reset());
     this.terrainGraphics = this.add.graphics().setDepth(0);
     this.underlayGraphics = this.add.graphics().setDepth(1);
     this.coverGraphics = this.add.graphics().setDepth(2);
@@ -689,7 +697,7 @@ export class BattleScene extends Phaser.Scene {
       }
     });
 
-    this.director.subscribe((snapshot) => {
+    const unsubscribe = this.director.subscribe((snapshot) => {
       this.snapshot = snapshot;
       this.time.paused = snapshot.phase === 'paused';
       if (snapshot.phase === 'playing' && snapshot.runSerial !== this.lastRunSerial) {
@@ -699,6 +707,7 @@ export class BattleScene extends Phaser.Scene {
         this.gamepad.resetAll();
       }
     });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
 
     if (this.snapshot?.phase === 'playing') {
       this.startMission(this.snapshot);
@@ -750,6 +759,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private startMission(snapshot: SessionSnapshot): void {
+    this.blenderSprites?.reset();
     const mission = snapshot.currentMission;
     this.missionGeneration += 1;
     this.lastRunSerial = snapshot.runSerial;
@@ -2869,6 +2879,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (this.staticLayerDirty) {
+      this.blenderSprites?.beginCoverUpdate();
       terrainGraphics.clear();
       coverGraphics.clear();
       this.drawTerrain(terrainGraphics, mission);
@@ -2876,6 +2887,7 @@ export class BattleScene extends Phaser.Scene {
       this.staticLayerDirty = false;
     }
 
+    this.blenderSprites?.beginFrame();
     underlayGraphics.clear();
     this.drawExitLane(underlayGraphics, mission);
     this.drawCaptureZones(underlayGraphics);
@@ -2997,7 +3009,9 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    this.drawRotatedRect(graphics, this.escort.x, this.escort.y, 74, 40, 0, 0x8fd6a0, 1);
+    if (!this.blenderSprites?.drawTransport(this.escort.x, this.escort.y)) {
+      this.drawRotatedRect(graphics, this.escort.x, this.escort.y, 74, 40, 0, 0x8fd6a0, 1);
+    }
     graphics.fillStyle(0x1b241b, 1);
     graphics.fillRect(this.escort.x - 34, this.escort.y - 31, 68, 6);
     graphics.fillStyle(0xa2db7c, 1);
@@ -3026,6 +3040,17 @@ export class BattleScene extends Phaser.Scene {
 
       if (cover.kind === 'armory') {
         this.drawCoverArmory(graphics, cover);
+        continue;
+      }
+
+      const spriteDrawn = this.blenderSprites?.drawProp(cover.id, cover.kind, cover.x, cover.y,
+        cover.width, cover.height, cover.health / cover.maxHealth) ?? false;
+      if (spriteDrawn) {
+        if (cover.kind === 'houseOpen' || cover.kind === 'houseSealed') {
+          this.drawHouseAnnotations(graphics, cover);
+        } else {
+          this.drawCoverHealthBar(graphics, cover, cover.y - cover.height * .5 - 10);
+        }
         continue;
       }
 
@@ -3261,7 +3286,6 @@ export class BattleScene extends Phaser.Scene {
     // lighter brick buildings that may release a hidden garrison when broken.
     const wallColor = open ? 0x7b8282 : 0x985f47;
     const roofColor = open ? 0x444c50 : 0x51372e;
-    const damageRatio = clamp(cover.health / cover.maxHealth, 0, 1);
 
     graphics.fillStyle(0x0b0c10, 0.35);
     graphics.fillRoundedRect(left + 7, top + 9, cover.width, cover.height, 8);
@@ -3295,6 +3319,15 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
+    this.drawHouseAnnotations(graphics, cover);
+  }
+
+  /** Keep entrance markers and damage readable on both baked and fallback art. */
+  private drawHouseAnnotations(graphics: Phaser.GameObjects.Graphics, cover: CoverRuntime): void {
+    const left = cover.x - cover.width * .5;
+    const top = cover.y - cover.height * .5;
+    const open = cover.kind === 'houseOpen';
+    const damageRatio = clamp(cover.health / cover.maxHealth, 0, 1);
     if (open) {
       const openingLength = 44;
       const openingDepth = 15;
@@ -3641,7 +3674,18 @@ export class BattleScene extends Phaser.Scene {
     }
 
     if (art.chassis === 'infantry') {
-      this.drawInfantry(graphics, tank, art);
+      const drawn = this.blenderSprites?.drawUnit(tank.id, tank.kind, tank.team, tank.x, tank.y, r,
+        tank.bodyAngle, tank.turretAngle, tank.exposed);
+      if (!drawn) this.drawInfantry(graphics, tank, art);
+      else this.drawUnitHealth(graphics, tank, 14);
+      this.drawTankHitReaction(graphics, tank);
+      return;
+    }
+
+    if (this.blenderSprites?.drawUnit(tank.id, tank.kind, tank.team, tank.x, tank.y, r,
+      tank.bodyAngle, tank.turretAngle, tank.exposed)) {
+      this.drawBarrel(graphics, tank, art, tank.team === 'player' ? this.getSelectedWeapon() : undefined);
+      this.drawUnitHealth(graphics, tank, 18);
       this.drawTankHitReaction(graphics, tank);
       return;
     }
@@ -3679,6 +3723,14 @@ export class BattleScene extends Phaser.Scene {
     graphics.fillStyle(tank.team === 'player' ? 0xa2db7c : 0xff845f, 0.95);
     graphics.fillRect(tank.x - r, tank.y - r - 18, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 5);
     this.drawTankHitReaction(graphics, tank);
+  }
+
+  private drawUnitHealth(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime, offset: number): void {
+    const r = tank.radius;
+    graphics.fillStyle(0x070908, .75);
+    graphics.fillRect(tank.x - r, tank.y - r - offset, r * 2, 4);
+    graphics.fillStyle(tank.team === 'player' ? 0xa2db7c : 0xff845f, .95);
+    graphics.fillRect(tank.x - r, tank.y - r - offset, r * 2 * clamp(tank.health / tank.maxHealth, 0, 1), 4);
   }
 
   private drawTankHitReaction(graphics: Phaser.GameObjects.Graphics, tank: TankRuntime): void {
@@ -3874,6 +3926,24 @@ export class BattleScene extends Phaser.Scene {
     const indirect = weapon?.id === 'mortar' || weapon?.id === 'gasBomb';
     const longGun = weapon?.id === 'railgun' || weapon?.id === 'laser' || weapon?.id === 'sniper';
     const length = art.barrelLength * r * (rapidFire ? 0.82 : indirect ? 0.58 : longGun ? 1.28 : 1);
+
+    const weaponKind = rapidFire ? 'rapid' : droneRack ? 'drone' : launcher ? 'launcher'
+      : indirect ? 'mortar' : longGun ? 'rail' : 'cannon';
+    const spriteWidth = rapidFire ? 5 : droneRack ? r * .24 : launcher ? art.barrelWidth + 6
+      : indirect ? art.barrelWidth + 5 : art.barrelWidth + 2;
+    const spriteStart = droneRack ? r * -.34 : innerStart;
+    const spriteLength = droneRack ? r * .92 : length - innerStart;
+    const lateral = droneRack ? r * .48 : rapidFire ? r * .13 : 0;
+    const first = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, -lateral);
+    if (this.blenderSprites?.drawWeapon(`${tank.id}-gun`, weaponKind, first.x, first.y,
+      tank.turretAngle, spriteLength, spriteWidth)) {
+      if (lateral) {
+        const second = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, lateral);
+        this.blenderSprites.drawWeapon(`${tank.id}-gun-2`, weaponKind, second.x, second.y,
+          tank.turretAngle, spriteLength, spriteWidth);
+      }
+      return;
+    }
 
     if (rapidFire) {
       for (const side of [-1, 1]) {

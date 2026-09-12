@@ -723,3 +723,84 @@ Before this pass at `360 × 640`:
 - Exercise the largest late-campaign shop inventory on a narrow device and confirm nested weapon/system rack scrolling feels natural.
 - Confirm long translated mission briefings remain understandable when the mobile pause briefing is clamped to three lines.
 - Check safe-area padding and fixed footers on an iPhone with a home indicator and on a short landscape Android display.
+
+---
+
+## Request 19: Blender-rendered art for the 2D game (2026-09-12)
+
+### Selected design and implementation
+
+Adapted the original Blender-authored models from the user's `Tank_game_3D`
+checkout: beveled armor, detailed tracks, engine vents, hatches, infantry,
+crates, fuel drums, concrete barriers, stone walls, houses, and the transport.
+The sibling repository was only read; selected GLBs were copied into this
+repository so future asset builds do not depend on that checkout.
+
+1. Created `tools/blender/render_sprites.py`, a reproducible Blender 4.5 Cycles
+   pipeline using transparent orthographic renders, four CPU threads and
+   16 samples. No external image libraries or Blender add-ons are needed.
+2. Rendered four tank chassis variants in player and enemy palettes, plus
+   rifle and rocket infantry. Hull and turret/upper-body layers are independent.
+   The heavy has additional armor blocks; the Mini Tank preview has twin guns.
+3. Authored six Blender weapon attachments for cannon, rapid-fire, launcher,
+   long-gun, mortar, and drone-rack appearances. Swapping weapons selects the
+   matching appearance, including hiding the second gun after switching away
+   from a twin-gun weapon.
+4. Packed 37 frames into one 1536 × 960 PNG atlas (472,998 bytes / about 462 KiB).
+   The RGBA texture requires about 5.6 MiB before driver overhead. The browser
+   loads no GLB files or 3D engine. Five separate 384 × 256 images serve the shop.
+5. Integrated a reusable Phaser image cache in `BlenderSprites.ts`. Each frame
+   updates transforms/visibility; cover images update with the existing dirty
+   cover layer. Retry, stage changes, and scene shutdown destroy old images.
+6. Preserved the existing projectile/collision rules, independently controlled
+   gun angle, hit reactions, exposure colors, health bars, door arrows, shelter
+   markers, sealed-house boards, and damage cracks. Damaged cover also darkens.
+7. Added the Blender previews to the shop without increasing its phone layout
+   height. Missing previews fall back to the original SVG. If the atlas fails
+   to load, gameplay falls back to existing vector art.
+8. Saved an editable heavy-tank render scene as `assets/blender/sprite-studio.blend`,
+   the vendored source meshes, and full rebuild notes in `assets/blender/README.md`.
+
+### Review fixes and verification
+
+- Corrected the imported GLB quaternion/Euler rotation mode before rotating the
+  models; forward now maps to +X, matching the simulation's zero-angle heading.
+- Removed the source barrel and thermal sleeve from the turret layers, preventing
+  duplicated guns when the game equips its weapon attachment.
+- Kept all unit frames centered and untrimmed to prevent hull/turret pivot drift.
+- Kept house entrance and damage annotations above the rendered roof images.
+- Added cleanup of the scene's director subscription on shutdown.
+- `npm run build` and `git diff --check` passed.
+- `tools/verify-blender.mjs` passed: independent hull/turret angles, stable image
+  counts across 300 redraws, hidden shelter occupants, hidden dead units and
+  destroyed cover, destroyed old images after retry, twin/single/drone weapon
+  switching, a loaded mobile shop preview with its footer visible, and playable
+  vector fallback when both atlas requests are blocked.
+- The normal game entry point was also tested with a 390 × 844 touch viewport:
+  Mini Tank selection, aim/fire, pause, and resume passed with no page errors.
+- Desktop battlefield, desktop shop, mobile shop, and mobile gameplay screenshots
+  are in ignored `artifacts/blender-review/`. The development encounter lives at
+  `tools/art-review.html` and is not included in the production build.
+
+### Remaining art scope / Claude review focus
+
+- Stationary gun platforms and enemy convoy chassis retain their vector bodies;
+  projectiles, particles, and terrain remain procedural. The escorted transport
+  uses the new sprite. This is a selected asset upgrade, not a conversion to 3D.
+- Review visual contrast and fine details on a physical low-end Android phone.
+  Browser object-reuse checks do not substitute for device GPU profiling.
+- Check additional palettes, walking/tread animation frames, or unique boss
+  silhouettes as future art passes. The baked lighting rotates with each sprite.
+- Rebuild instructions and optional Playwright verification commands are in
+  `assets/blender/README.md`.
+
+### Release verification
+
+- The production build was tested at `/Tank_game/`, matching the GitHub Pages
+  subpath, on desktop and a 390 × 844 touch viewport.
+- Both loaded the exact built atlas (SHA-256 comparison), completed start/pause/
+  resume, and reported no page errors.
+- `tools/verify-release.mjs` supports the same verification against the live
+  deployment using `ART_RELEASE_URL`.
+- Publish the committed PNG/JSON assets with the existing `main` GitHub Pages
+  workflow. Blender is not needed on CI or the user's device.

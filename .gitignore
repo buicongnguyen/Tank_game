@@ -23,4 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .vite.err
+artifacts/
+*.blend1
 Transcribe_translate/

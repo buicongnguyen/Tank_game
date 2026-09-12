@@ -2888,6 +2888,22 @@ a {
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
 }
 
+.shop-unit-visual .blender-unit-preview {
+  width: min(100%, 280px);
+  height: 174px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
+}
+
+.blender-unit-preview + svg,
+.blender-unit-preview.is-unavailable {
+  display: none;
+}
+
+.blender-unit-preview.is-unavailable + svg {
+  display: block;
+}
+
 .shop-unit-visual .unit-shadow {
   fill: rgba(0, 0, 0, 0.42);
 }
@@ -3479,6 +3495,10 @@ a {
   }
 
   .shop-unit-visual svg {
+    height: 96px;
+  }
+
+  .shop-unit-visual .blender-unit-preview {
     height: 96px;
   }
 
