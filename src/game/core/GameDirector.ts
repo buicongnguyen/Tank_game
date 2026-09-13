@@ -56,7 +56,7 @@ const UPGRADE_LIBRARY: Record<UpgradeId, UpgradeOption> = {
   special: {
     id: 'special',
     label: 'Command Uplink',
-    description: 'Artillery special cools down faster.',
+    description: 'Guided Air Strike cools down faster.',
   },
   repair: {
     id: 'repair',

@@ -35,7 +35,8 @@ const ui = new InterfaceController({
 }, director);
 const controlReview = new URLSearchParams(location.search).has('controls');
 const controls = controlReview ? new TouchControlsOverlay(document.querySelector('#touch-controls-root'), director, gamepad) : undefined;
-const scene = new BattleScene(director, snapshot => { ui.setHud(snapshot); controls?.setHud(snapshot); }, gamepad, undefined, () => false);
+const reviewEffects = { enabled: new URLSearchParams(location.search).has('effects') };
+const scene = new BattleScene(director, snapshot => { ui.setHud(snapshot); controls?.setHud(snapshot); }, gamepad, undefined, () => reviewEffects.enabled);
 const game = new Phaser.Game({
   type: Phaser.AUTO, parent: 'game-root', width: 1280, height: 720,
   backgroundColor: '#0a0f0b', scene: [scene],
@@ -44,7 +45,7 @@ const game = new Phaser.Game({
   audio: { noAudio: true },
 });
 window.artReview = {
-  game, scene, director, gamepad, controls,
+  game, scene, director, gamepad, controls, reviewEffects,
   pose() {
     game.loop.sleep();
     scene.player.x = 145;

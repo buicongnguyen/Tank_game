@@ -960,3 +960,184 @@ repository so future asset builds do not depend on that checkout.
   before running the release script.
 - Physical-device difficulty, battery use and sustained frame pacing remain
   playtest follow-ups; automated desktop emulation is not a phone benchmark.
+
+---
+
+## Request 22: Guided-missile Air Strike (2026-09-13)
+
+### Behavior and implementation
+
+- Replaced the old four instant artillery explosions with six visible guided
+  missiles, activated by the existing Q key or mobile Strike button. The
+  selected primary weapon and its ammunition are unaffected.
+- Acquisition is within 720 world units of the player. Nearest enemies are
+  prioritized, followed by nearby destructible buildings/cover; the volley
+  spreads across distinct targets before repeating. Sheltered soldiers cause
+  their protective house to be targeted instead of the hidden soldier.
+- Missiles arrive from above the player, fly over intervening objects, retain
+  their target lock, follow movement, and reacquire on target death/destruction
+  or entry into shelter. Reacquisition remains near the original call position
+  and favors targets with fewer incoming missiles. With no remaining targets,
+  a missile is removed without applying phantom damage.
+- Repair pads, armory pickups, mines, barrels, destroyed objects, and the
+  player's occupied shelter are not direct auto-targets. Normal nearby blast
+  damage to destructible cover still applies; this is not a no-collateral mode.
+- Tuning is in `src/game/data/airStrike.ts`: six missiles, 520 maximum flight
+  speed, 4-second lifetime, 105 splash radius, and 0.9 times chassis shell damage
+  per missile. The final approach slows to avoid circling small infantry.
+  Existing special cooldowns/upgrades remain in use; an empty acquisition does
+  not consume cooldown. Structural impacts count as one direct hit per missile,
+  without also applying that missile's splash to the same building.
+- The volley uses the existing projectile loop/rendering and capped feedback
+  pools. It creates no delayed callbacks, new textures, or per-missile display
+  objects. Normal guidance reads its retained target; target-list allocation
+  and sorting only happen on activation or lock loss. Pause freezes flight,
+  retry clears all missiles, and normal homing weapons retain their old behavior.
+- Updated desktop/mobile help and accessible button text to describe guided
+  Air Strike. Existing control layout and bindings remain intact.
+
+### Review and verification
+
+- Added `tools/verify-air-strike.mjs`, run against the development-only fixture
+  on port 5182 (optional Playwright package directory argument, like the other
+  verification scripts). Checks run at 1366x900 desktop and 390x844 touch sizes.
+- Verified six distinct locks where possible, threat priority, moving infantry
+  hit by all six missiles, overflight, retargeting, range boundaries, utilities
+  excluded, shelter handling, no-target cooldown, lifetime expiry, map-edge
+  launches, pause/resume, retry cleanup, and unchanged weapon/ammunition.
+- Checked isolated building durability: crates take one hit, brick houses three,
+  concrete/open houses four, rock walls eight (two hits remain after a full
+  six-missile volley). Real keyboard Q and touch-button dispatch each launch six
+  missiles; even the on-foot Soldier renders air support as rockets, not bullets.
+- `npm run build`, the Air Strike, balance, artwork, seven-layout controls, and
+  local production desktop/mobile smoke checks all passed with no page errors.
+  The existing Phaser bundle-size warning remains. Screenshots were inspected
+  under ignored `artifacts/air-strike-review/`.
+- Implemented locally. This request did not include another commit/push/deploy;
+  publication remains pending. Physical-phone playtesting remains recommended.
+
+---
+
+## Request 23: Adopt selected 3D combat and ground mechanisms (2026-09-13)
+
+### Agreed scope and implementation plan
+
+The follow-up "implement like your recommended suggestion" approves the selected
+ideas from the sibling `Tank_game_3D` project, adapted to this Phaser 2D game:
+
+1. Make ammunition recognizable independently of the player's chassis.
+2. Add material-specific destruction, short-lived debris/wrecks, and exhaust.
+3. Replace the ground grid with cached terrain detail and decorative roads.
+4. Give the existing Flamer, Laser, and Machine Gun their distinct mechanisms.
+5. Review damage, obstruction, upgrades, pause/retry cleanup and mobile budgets;
+   run new regression checks alongside the existing input/art/balance suites.
+
+Reference mechanisms were inspected in the 3D project's `src/three/effects.ts`,
+`flamethrower.ts`, `special-weapons.ts`, and `frontier-surfaces.ts`. No Three.js
+runtime, 3D environment sprites, new dependency, or remote art was added. The
+sibling repository was read only. Original 2D cover artwork, Blender tanks and
+weapons, slower chassis speeds, infantry counts, and controls are preserved.
+The previous local guided Air Strike work from Request 22 is also preserved.
+
+### Implemented changes and tuning
+
+- `src/game/data/weapons.ts` now explicitly identifies rifle/MG bullets and
+  shotgun/scattergun pellets. Soldier rockets, rail shots and mortars no longer
+  incorrectly render as rifle rounds. Autocannon rounds remain light shells.
+  Structural chip damage follows ammunition: bullets/pellets apply 0.25 hits,
+  ordinary shells/rockets apply one. A tank-mounted MG no longer destroys a
+  crate with just one small bullet. Autocannon shell durability is unchanged.
+- `src/game/data/weaponMechanics.ts` centralizes the new tuning. The Machine Gun
+  alternates two firing positions at levels 1–2 and four at levels 3–4. Its
+  Blender/vector barrels match those offsets, with unused barrels hidden on
+  weapon swaps. It still fires eight rounds at 42 ms intervals, not sixteen or
+  thirty-two; existing ammunition, damage/cooldown upgrades and retry guards
+  continue to apply.
+- Flamer is now a 230-world-unit, 70-degree cone with distance falloff and
+  cover occlusion. One trigger applies 0.65 times upgraded shell damage, falling
+  to 45% at maximum range; replaces four tiny projectiles at 0.22 each. Living
+  enemies and combustible cover receive a two-second burn at 0.14 times
+  upgraded shell damage per second, with the same distance factor. Existing
+  armor, shields, and shelter protection still apply. Fire chips structures at
+  one quarter of damage/95; stone can be chipped but does not keep burning.
+  Repeated exposure refreshes a single burn, retaining the stronger DPS rather
+  than stacking. Gameplay damage does not depend on visual particle counts.
+- Burn damage accumulates in 200 ms intervals and integrates the final partial
+  interval. Duration uses the same elapsed clock as cooldowns, including slow
+  frames; pausing freezes it. Status ticks do not repeatedly push enemies or
+  create damage-label spam. Shooting through one's own shelter doorway does
+  not damage that shelter; firing into its wall is blocked. Flame geometry is
+  evaluated before destruction, so a just-destroyed blocker does not let the
+  same trigger also hit the enemy behind it.
+- Laser is an instant 900-unit pulse, drawn for 160 ms. Hits are sorted along
+  the ray before damage is applied: up to seven enemies, through exactly one
+  concrete slab without damaging it, stopping at the second concrete slab or
+  any other destructible cover. Non-concrete blocking cover receives one hit.
+  The beam stops at map edges. It uses the selected weapon's normal trigger,
+  ammo/cooldown, damage upgrades, recoil and energy sound, not the Strike input.
+- `src/game/render/SurfaceEffects.ts` adds wood chips, stone dust/rubble, metal
+  sparks/wrecks, fuel fire/smoke, and rocket exhaust. Destruction marks expire
+  after 10 seconds (wrecks: 14); cosmetic fires expire after 1.8–3 seconds.
+  Debris and wrecks do not become new obstacles or deal hidden area damage.
+  Wood/fuel fires are cosmetic unless the actual Flamer applied a burn status.
+  Original explosion rings and hit feedback are retained.
+- Effects use pooled data records and existing Graphics layers, with hard
+  high/reduced budgets: 160/56 particles, 32/12 ground marks, 6/2 cosmetic fires.
+  Laser and flame visuals are capped at 8 and 6, respectively. Draw calls are
+  culled for offscreen particles/marks/cones; no per-particle GameObjects,
+  display textures, delayed callbacks, or physics bodies are created. Reduced
+  effects trims the pools and simplifies flames while preserving damage cues.
+- `src/game/render/GroundRenderer.ts` caches five 160x160 texture tiles: grass,
+  sand, asphalt, snow, and ash. Mission palette tint, seeded irregular patches,
+  decorative tracks/road markings and static water ripples provide variation.
+  One TileSprite is reused across missions. Roads/water detail introduce no
+  collision, speed penalties, new routes, or mission-data mutations. Terrain
+  now has its own dirty flag: damage to cover rebuilds cover art, not terrain.
+- Retry/new campaign clears all new combat records and status maps. The
+  development-only art fixture can opt into full effects with `?effects`;
+  production does not expose fixture controls or test globals.
+
+### Review, verification and handoff
+
+- Added `tools/verify-3d-adoption.mjs`: 77 checks each at 1366x900 desktop and
+  390x844 touch sizes. Covers actual projectile draw dispatch on Soldier/Mini,
+  all four MG levels and barrel hiding, burst cancellation, ammunition-specific
+  structural damage, laser blockers/piercing/normal-fire ammo/map limits,
+  cone angle/range/occlusion, doorway safety, burn refresh/expiry/pause, equal
+  damage at 16/40/100/500 ms steps and both visual settings, retry cleanup,
+  destruction idempotence, material effects, pool expiry/caps, deterministic
+  terrain, five-texture/one-TileSprite reuse, and unchanged mission configs.
+- Review caught and fixed autocannon shell misclassification, own-doorway
+  flame damage, out-of-map laser geometry, and burn duration stretching during
+  slow frames. Special weapons retain the normal alive/phase guards and recoil.
+- A 600-update cosmetic/flame stress check with 27 enemies stayed within all
+  budgets. Another 300 redraws created no display-object growth. CPU p95 for
+  effect update/render-command work was approximately 0.2–0.4 ms on this host;
+  this excludes GPU presentation and is not a physical-phone FPS guarantee.
+- Production build and new adoption, Air Strike, balance, Blender artwork,
+  seven-layout controls and local production desktop/mobile smoke suites were
+  run. No browser page errors; the pre-existing Phaser bundle-size warning
+  remains. Desktop/mobile full/reduced screenshots were inspected under the
+  ignored `artifacts/3d-adoption-review/` directory. The art tests also verify
+  missing-atlas fallback, unchanged cover drawings, shop and retry behavior.
+- Re-run: start Vite at `127.0.0.1:5182`, then run
+  `node tools/verify-3d-adoption.mjs` and the existing review scripts listed
+  above. Each accepts an optional local Playwright package directory argument.
+  Run `npm run build` before `node tools/verify-release.mjs` for the production
+  smoke test; it starts its own local server without publishing anything.
+- Implemented locally, not committed/pushed/deployed by this follow-up.
+  Physical-device sustained frame pacing and the new flame/laser balance
+  should be playtested before treating desktop emulation as mobile sign-off.
+
+### Release follow-up (2026-09-13)
+
+- The user explicitly approved committing, pushing and deploying Requests 22
+  and 23 together. This supersedes their implementation-only publication scope.
+- Release through `main` on `git@github.com:buicongnguyen/Tank_game.git`, using
+  the existing `Deploy To GitHub Pages` workflow. No generated screenshots,
+  `dist` output, dependency folders, or sibling-repository files are committed.
+- Preflight: rebuild and run the local production smoke check. After the Pages
+  workflow completes, compare the live JS/CSS and Blender atlas hashes against
+  that production build and test desktop/mobile start, pause and resume.
+  Report the resulting commit and live-verification outcome in the release
+  response; physical-phone performance remains a separate playtest follow-up.

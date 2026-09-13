@@ -702,8 +702,8 @@ export class InterfaceController {
         <span class="intel-kicker">Controls</span>
         <h3>Battle Tank Inputs</h3>
         <ul>
-          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space or E fires the selected weapon, X swaps it, Q calls artillery, R repairs.</li>
-          <li><strong>Mobile</strong> Left stick drives. Swap chooses the active weapon; battlefield touch or the smaller right aim/fire stick immediately uses it. Artillery and repair remain separate.</li>
+          <li><strong>Keyboard</strong> WASD drives, mouse aims, Space or E fires, X swaps weapons, Q launches six guided missiles, R repairs.</li>
+          <li><strong>Mobile</strong> Left stick drives; right stick or battlefield touch aims/fires. Swap changes weapons. Strike auto-targets nearby enemies and buildings.</li>
           <li><strong>Armor</strong> Face threats with the hull. Rear hits hurt much more than front hits.</li>
         </ul>
       </article>
@@ -779,7 +779,7 @@ export class InterfaceController {
                   <li class="pause-control-mobile"><strong>Left stick</strong> drive</li>
                   <li class="pause-control-mobile"><strong>Right stick / tap</strong> aim and fire</li>
                   <li><strong>Swap</strong> change weapon</li>
-                  <li><strong>Q / Strike</strong> artillery</li>
+                  <li><strong>Q / Strike</strong> 6 guided missiles</li>
                   <li><strong>R / +</strong> repair</li>
                 </ul>
               </div>
@@ -955,13 +955,13 @@ export class InterfaceController {
 
   private getFailureAdvice(reason: string): string {
     if (reason.toLowerCase().includes('convoy')) {
-      return 'Convoy carriers must be stopped before the escape warning expires. Chase the beige carriers first and use rockets or artillery when they are near the exit road.';
+      return 'Stop beige convoy carriers before they escape. Get close and use rockets or guided Air Strike.';
     }
 
     if (reason.toLowerCase().includes('escort')) {
       return 'Stay close enough to keep the truck moving, but block incoming fire with your hull and clear ambush tanks early.';
     }
 
-    return 'Face threats with your front armor, use cover between reloads, and save artillery for clustered armor.';
+    return 'Face threats with front armor, use cover between reloads, and call Air Strike on nearby enemies or buildings.';
   }
 }

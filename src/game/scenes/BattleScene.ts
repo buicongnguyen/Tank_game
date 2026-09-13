@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import { BlenderSprites } from '../render/BlenderSprites';
+import { SurfaceEffects, coverMaterial } from '../render/SurfaceEffects';
+import { GroundRenderer } from '../render/GroundRenderer';
 import type { BattleMusic, TankSfxCue } from '../audio/BattleMusic';
 import { GameDirector } from '../core/GameDirector';
 import { VirtualGamepad } from '../core/VirtualGamepad';
 import { darkenColor, INFANTRY_PALETTE, TANK_ART, type TankArt, type TankArtKind } from '../render/tankArt';
 import { COMBAT_FEEDBACK } from '../data/combatFeedback';
-import { WEAPONS, type WeaponFeedbackStyle, type WeaponSpec } from '../data/weapons';
+import { AIR_STRIKE } from '../data/airStrike';
+import { WEAPONS, type WeaponFeedbackStyle, type WeaponSpec, type WeaponProjectileStyle } from '../data/weapons';
+import { FLAME, PULSE_LASER, machineGunBarrels, machineGunOffset, projectileAppearance } from '../data/weaponMechanics';
 import { PLAYER_CLASSES } from '../data/playerClasses';
 import { progressionForMission } from '../data/progression';
 import type {
@@ -73,7 +77,7 @@ interface PickupRuntime {
   ttl: number;
 }
 
-type ProjectileKind = 'shell' | 'rocket' | 'mortar' | 'rail' | 'gas' | 'drone';
+type ProjectileKind = WeaponProjectileStyle;
 
 interface ProjectileRuntime {
   id: number;
@@ -99,6 +103,9 @@ interface ProjectileRuntime {
   targetY: number;
   hitTankIds: string[];
   feedback: WeaponFeedbackStyle;
+  /** Air support keeps its lock and only searches again if the target is lost. */
+  airStrike?: { origin: { x: number; y: number }; target: AirStrikeTarget };
+  trailMs?: number;
 }
 
 interface ProjectileHitCandidate {
@@ -121,6 +128,14 @@ interface CoverRuntime {
   garrison: InfantryKind[];
   garrisonReleased: boolean;
 }
+
+type AirStrikeTarget =
+  | { kind: 'enemy'; entity: TankRuntime }
+  | { kind: 'cover'; entity: CoverRuntime };
+
+interface BurnRuntime { remainingMs: number; accumulatedMs: number; dps: number; sourceX: number; sourceY: number; }
+interface BeamRuntime { x: number; y: number; endX: number; endY: number; age: number; }
+interface FlameRuntime { x: number; y: number; age: number; rays: Array<{ angle: number; length: number }>; }
 
 interface CaptureRuntime extends CaptureZoneConfig {
   progress: number;
@@ -299,7 +314,7 @@ const ENEMY_TEMPLATES: Record<EnemyTankKind, EnemyTemplate> = {
 /** What each enemy kind throws at the player. */
 const ENEMY_SHOTS: Record<EnemyTankKind, { style: ProjectileKind; blastRadius: number; color: number }> = {
   // a rifle round barely scratches armour and leaves no real blast
-  rifleman: { style: 'shell', blastRadius: 0, color: 0xffe9a8 },
+  rifleman: { style: 'bullet', blastRadius: 0, color: 0xffe9a8 },
   // an infantry rocket lands about as hard as a tank shell
   rocketeer: { style: 'rocket', blastRadius: 54, color: 0xff7447 },
   scout: { style: 'shell', blastRadius: 48, color: 0xffc16d },
@@ -465,7 +480,7 @@ function segmentPointHitTime(
   return distanceSquared <= radius * radius ? t : null;
 }
 
-function segmentRectHitTime(projectile: ProjectileRuntime, rect: CoverRuntime): number | null {
+function segmentRectHitTime(projectile: Pick<ProjectileRuntime, 'previousX' | 'previousY' | 'x' | 'y' | 'radius'>, rect: CoverRuntime): number | null {
   const halfWidth = rect.width * 0.5 + projectile.radius;
   const halfHeight = rect.height * 0.5 + projectile.radius;
   const minX = rect.x - halfWidth;
@@ -581,6 +596,12 @@ export class BattleScene extends Phaser.Scene {
   private coverGraphics?: Phaser.GameObjects.Graphics;
   private graphics?: Phaser.GameObjects.Graphics;
   private blenderSprites?: BlenderSprites;
+  private groundRenderer?: GroundRenderer;
+  private readonly surfaceEffects = new SurfaceEffects();
+  private readonly burns = new Map<TankRuntime | CoverRuntime, BurnRuntime>();
+  private beams: BeamRuntime[] = [];
+  private flames: FlameRuntime[] = [];
+  private readonly effectVisible = (x: number, y: number, padding: number): boolean => this.isVisible(x, y, padding);
   /** Separate additive layer so blasts glow instead of just painting over. */
   private glow?: Phaser.GameObjects.Graphics;
   private keys?: Record<string, Phaser.Input.Keyboard.Key>;
@@ -627,6 +648,7 @@ export class BattleScene extends Phaser.Scene {
   private aimMode: 'point' | 'heading' = 'point';
   private aimHeading = 0;
   private staticLayerDirty = true;
+  private terrainLayerDirty = true;
   private readonly projectileHitBuffer: ProjectileHitCandidate[] = [];
   private readonly collisionTanks: TankRuntime[] = [];
   private readonly polygonPointBuffer: RenderPoint[] = [];
@@ -656,6 +678,8 @@ export class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.blenderSprites = new BlenderSprites(this);
+    this.groundRenderer = new GroundRenderer(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.groundRenderer?.destroy(); this.surfaceEffects.clear(); this.burns.clear(); });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.blenderSprites?.reset());
     this.terrainGraphics = this.add.graphics().setDepth(0);
     this.underlayGraphics = this.add.graphics().setDepth(1);
@@ -741,6 +765,10 @@ export class BattleScene extends Phaser.Scene {
     this.updateHouseShelters();
     this.updateConvoyEscapeState(mission, delta);
     this.updateProjectiles(dt);
+    // Status duration follows the same elapsed clock as weapon cooldowns, not
+    // the movement clamp; a slow frame must not turn a two-second burn into five.
+    this.updateBurns(delta);
+    this.surfaceEffects.update(delta / 1000, !this.effectsEnabled());
     this.updateExplosions(delta);
     this.updateCombatFeedback(delta);
     this.updateCaptureZones(player, dt);
@@ -771,6 +799,11 @@ export class BattleScene extends Phaser.Scene {
     this.defenseHeldMs = 0;
     this.missionResolved = false;
     this.projectiles = [];
+    this.surfaceEffects.clear();
+    this.surfaceEffects.low = !this.effectsEnabled();
+    this.burns.clear();
+    this.beams = [];
+    this.flames = [];
     this.explosions = [];
     this.muzzleFlashes = [];
     this.impacts = [];
@@ -779,6 +812,7 @@ export class BattleScene extends Phaser.Scene {
     this.playerHitShakeCooldownMs = 0;
     this.worldShakeCooldownMs = 0;
     this.staticLayerDirty = true;
+    this.terrainLayerDirty = true;
     this.performanceElapsed = 0;
     this.performanceFrames = 0;
     this.performanceLongFrames = 0;
@@ -1033,9 +1067,8 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    if (this.wantsSpecial() && this.specialTimer <= 0) {
+    if (this.wantsSpecial() && this.specialTimer <= 0 && this.callAirStrike()) {
       this.specialTimer = stats.specialCooldownMs;
-      this.callArtilleryStrike();
     }
 
     if (this.wantsRepair() && this.repairCharges > 0 && player.health < player.maxHealth) {
@@ -1396,6 +1429,11 @@ export class BattleScene extends Phaser.Scene {
 
   private updateProjectiles(dt: number): void {
     for (const projectile of this.projectiles) {
+      if (projectile.airStrike) {
+        this.updateAirStrikeMissile(projectile, dt);
+        this.updateRocketExhaust(projectile, dt);
+        continue;
+      }
       if (projectile.homingStrength > 0) {
         this.steerHomingProjectile(projectile, dt);
       }
@@ -1405,6 +1443,7 @@ export class BattleScene extends Phaser.Scene {
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.ttl -= dt * 1000;
+      this.updateRocketExhaust(projectile, dt);
 
       // arcing shells fly over cover and armor, detonating only at the aim point
       if (projectile.arcing) {
@@ -1579,6 +1618,15 @@ export class BattleScene extends Phaser.Scene {
     projectile.vy = Math.sin(steered) * speed;
   }
 
+  private updateRocketExhaust(projectile: ProjectileRuntime, dt: number): void {
+    if (projectile.kind !== 'rocket' || projectile.ttl <= 0) return;
+    projectile.trailMs = (projectile.trailMs ?? 0) - dt * 1000;
+    if (projectile.trailMs <= 0) {
+      projectile.trailMs = this.effectsEnabled() ? 90 : 160;
+      this.surfaceEffects.exhaust(projectile.x, projectile.y, Math.atan2(projectile.vy, projectile.vx));
+    }
+  }
+
   private handleProjectileCoverHit(projectile: ProjectileRuntime): boolean {
     let nearest: { cover: CoverRuntime; hitTime: number } | undefined;
     for (const cover of this.covers) {
@@ -1623,7 +1671,7 @@ export class BattleScene extends Phaser.Scene {
       // Structural durability is measured in direct ordnance hits so chassis
       // upgrades do not make a one-shot crate or an eight-shot rock wall vary
       // wildly. Small-arms fire can still chip cover, but much more slowly.
-      const structuralDamage = projectile.sourceKind === 'rifleman' && projectile.kind === 'shell' ? 0.25 : 1;
+      const structuralDamage = projectileAppearance(projectile.kind, projectile.feedback) === 'bullet' || projectile.kind === 'pellet' ? 0.25 : 1;
       this.damageCover(cover, structuralDamage, projectile.team);
       this.createImpactEffect(projectile.x, projectile.y, projectile, false, projectile.blastRadius <= 0);
       this.createExplosion(projectile.x, projectile.y, projectile.blastRadius * 0.55, projectile.color);
@@ -1632,7 +1680,7 @@ export class BattleScene extends Phaser.Scene {
     return true;
   }
 
-  private projectileCanUseHouseOpening(projectile: ProjectileRuntime, cover: CoverRuntime): boolean {
+  private projectileCanUseHouseOpening(projectile: Pick<ProjectileRuntime, 'previousX' | 'previousY' | 'vx' | 'vy'>, cover: CoverRuntime): boolean {
     if (!pointInsideCover(projectile.previousX, projectile.previousY, cover)) {
       return false;
     }
@@ -1660,6 +1708,7 @@ export class BattleScene extends Phaser.Scene {
 
     cover.health = Math.max(0, cover.health - damage);
     this.staticLayerDirty = true;
+    if (cover.health > 0) this.surfaceEffects.impact(cover.x, cover.y, coverMaterial(cover.kind), false);
     if (cover.health <= 0) {
       this.destroyCover(cover, sourceTeam, damage);
     }
@@ -1673,6 +1722,7 @@ export class BattleScene extends Phaser.Scene {
     cover.health = 0;
     cover.solid = false;
     cover.spent = true;
+    this.surfaceEffects.impact(cover.x, cover.y, coverMaterial(cover.kind), true, Math.min(70, Math.max(cover.width, cover.height) * 0.45));
     this.staticLayerDirty = true;
     this.clearShelter(cover.id);
 
@@ -1772,6 +1822,10 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private updateCombatFeedback(delta: number): void {
+    for (const beam of this.beams) beam.age += delta;
+    this.beams = this.beams.filter(beam => beam.age < PULSE_LASER.durationMs);
+    for (const flame of this.flames) flame.age += delta;
+    this.flames = this.flames.filter(flame => flame.age < 320);
     for (const flash of this.muzzleFlashes) {
       flash.age += delta;
     }
@@ -2191,6 +2245,7 @@ export class BattleScene extends Phaser.Scene {
       target?: { x: number; y: number };
       feedback?: WeaponFeedbackStyle;
       emitLaunchFeedback?: boolean;
+      lateralOffset?: number;
     } = {},
   ): void {
     if (!source.alive || (!ignoreReload && source.reloadTimer > 0)) {
@@ -2199,8 +2254,9 @@ export class BattleScene extends Phaser.Scene {
 
     const angle = source.turretAngle + (options.angleOffset ?? 0);
     const muzzleDistance = source.radius + 20;
-    const x = source.x + Math.cos(angle) * muzzleDistance;
-    const y = source.y + Math.sin(angle) * muzzleDistance;
+    const lateral = options.lateralOffset ?? 0;
+    const x = source.x + Math.cos(angle) * muzzleDistance - Math.sin(source.turretAngle) * lateral;
+    const y = source.y + Math.sin(angle) * muzzleDistance + Math.cos(source.turretAngle) * lateral;
     const feedback = options.feedback ?? this.defaultFeedbackForShot(source, kind);
     const feedbackProfile = COMBAT_FEEDBACK[feedback];
     if (!ignoreReload) {
@@ -2266,12 +2322,22 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private fireSelectedWeapon(player: TankRuntime, stats: TankStats, weapon: WeaponSpec): void {
+    if (!player.alive || this.player !== player || this.snapshot?.phase !== 'playing') return;
     const weaponLevel = this.snapshot?.weaponLevels[weapon.id] ?? 1;
     const upgradeSteps = Math.max(0, weaponLevel - 1);
     const damage = stats.shellDamage * weapon.damageScale * Math.pow(1.18, upgradeSteps);
     const speed = stats.shellSpeed * weapon.speedScale * Math.pow(1.05, upgradeSteps);
     const aim = { ...this.lastPointerWorld };
     const generation = this.missionGeneration;
+
+    if (weapon.id === 'flamer' || weapon.id === 'laser') {
+      const recoil = COMBAT_FEEDBACK[weapon.feedback].recoil;
+      player.vx -= Math.cos(player.turretAngle) * recoil;
+      player.vy -= Math.sin(player.turretAngle) * recoil;
+      if (weapon.id === 'flamer') this.fireFlameCone(player, damage);
+      else this.firePulseLaser(player, damage, weapon);
+      return;
+    }
 
     for (let index = 0; index < weapon.shots; index += 1) {
       const spreadStep = weapon.shots > 1 ? weapon.spread * (index / (weapon.shots - 1) - 0.5) : 0;
@@ -2288,6 +2354,7 @@ export class BattleScene extends Phaser.Scene {
           arcing: weapon.arcing,
           target: aim,
           feedback: weapon.feedback,
+          lateralOffset: weapon.id === 'machineGun' ? machineGunOffset(index, weaponLevel) : 0,
           // A simultaneous spread is one trigger event, while a timed burst
           // should kick and flash for every round.
           emitLaunchFeedback: weapon.burstDelayMs > 0 || index === 0,
@@ -2304,12 +2371,199 @@ export class BattleScene extends Phaser.Scene {
     this.addFloatingText(player.x, player.y - 48, weapon.label, weapon.color);
   }
 
+  private specialProjectile(player: Pick<TankRuntime, 'x' | 'y' | 'kind'>, damage: number, feedback: WeaponFeedbackStyle, x: number, y: number): ProjectileRuntime {
+    return {
+      id: this.projectileSerial++, team: 'player', kind: feedback === 'energy' ? 'rail' : 'shell', sourceKind: player.kind,
+      x, y, previousX: player.x, previousY: player.y, vx: x - player.x, vy: y - player.y,
+      damage, blastRadius: 0, radius: 0, ttl: 0, color: feedback === 'energy' ? 0x7cf6ff : 0xffa34c,
+      pierceRemaining: 0, homingStrength: 0, arcing: false, targetX: x, targetY: y, hitTankIds: [], feedback,
+    };
+  }
+
+  private firePulseLaser(player: TankRuntime, damage: number, weapon: WeaponSpec): void {
+    const dx = Math.cos(player.turretAngle), dy = Math.sin(player.turretAngle);
+    let range: number = PULSE_LASER.range;
+    if (this.mission) {
+      if (Math.abs(dx) > 0.00001) range = Math.min(range, ((dx > 0 ? this.mission.worldWidth : 0) - player.x) / dx);
+      if (Math.abs(dy) > 0.00001) range = Math.min(range, ((dy > 0 ? this.mission.worldHeight : 0) - player.y) / dy);
+    }
+    const shot = this.specialProjectile(player, damage, 'energy',
+      player.x + dx * range, player.y + dy * range);
+    const hits: Array<{ time: number; cover?: CoverRuntime; enemy?: TankRuntime }> = [];
+    for (const cover of this.covers) {
+      if (cover.health <= 0 || cover.spent || cover.kind === 'repair' || cover.kind === 'armory') continue;
+      if (cover.kind === 'houseOpen' && this.projectileCanUseHouseOpening(shot, cover)) continue;
+      const time = segmentRectHitTime(shot, cover);
+      if (time !== null) hits.push({ time, cover });
+    }
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      const time = segmentPointHitTime(player.x, player.y, shot.x, shot.y, enemy.x, enemy.y, enemy.radius + 2);
+      if (time !== null) hits.push({ time, enemy });
+    }
+    hits.sort((a, b) => a.time - b.time || Number(!!b.cover) - Number(!!a.cover));
+    // Freeze obstruction order before damage can destroy cover or start chains.
+    let concrete = 0, units = 0, end = 1;
+    const accepted: typeof hits = [];
+    for (const hit of hits) {
+      accepted.push(hit);
+      if (hit.cover) {
+        if (hit.cover.kind !== 'concrete' || ++concrete > PULSE_LASER.concretePenetrations) { end = hit.time; break; }
+      } else if (++units >= weapon.pierce + 1) { end = hit.time; break; }
+    }
+    for (const hit of accepted) {
+      if (hit.cover) {
+        if (hit.cover.kind !== 'concrete') this.damageCover(hit.cover, 1, 'player');
+      } else if (hit.enemy?.alive) {
+        const impact = { ...shot, x: player.x + shot.vx * hit.time, y: player.y + shot.vy * hit.time };
+        this.damageTank(hit.enemy, damage, impact, 0);
+      }
+    }
+    const muzzle = Math.min(player.radius + 20, range * end);
+    const x = player.x + Math.cos(player.turretAngle) * muzzle;
+    const y = player.y + Math.sin(player.turretAngle) * muzzle;
+    this.beams.push({ x, y, endX: player.x + shot.vx * end, endY: player.y + shot.vy * end, age: 0 });
+    if (this.beams.length > 8) this.beams.shift();
+    this.createMuzzleFlash(x, y, player.turretAngle, weapon.color, 'energy');
+    this.playSpatialSfx('energy', x, y, 0.7);
+  }
+
+  private flameRayLength(x: number, y: number, angle: number, range: number, covers: CoverRuntime[], ignore?: CoverRuntime): number {
+    const ray = { previousX: x, previousY: y, x: x + Math.cos(angle) * range, y: y + Math.sin(angle) * range,
+      vx: Math.cos(angle) * range, vy: Math.sin(angle) * range, radius: 0 };
+    let limit = range;
+    for (const cover of covers) {
+      if (cover === ignore) continue;
+      if (cover.kind === 'houseOpen' && pointInsideCover(x, y, cover)
+        && (pointInsideCover(ray.x, ray.y, cover) || this.projectileCanUseHouseOpening(ray, cover))) continue;
+      const time = segmentRectHitTime(ray, cover);
+      if (time !== null) limit = Math.min(limit, time * range);
+    }
+    return limit;
+  }
+
+  private fireFlameCone(player: TankRuntime, damage: number): void {
+    const covers = this.covers.filter(cover => cover.solid && cover.health > 0 && !cover.spent);
+    const exposure = (x: number, y: number, ignore?: CoverRuntime): number => {
+      const dx = x - player.x, dy = y - player.y, distance = Math.hypot(dx, dy);
+      if (distance > FLAME.range) return 0;
+      if (distance > 0 && (dx * Math.cos(player.turretAngle) + dy * Math.sin(player.turretAngle)) / distance < Math.cos(FLAME.halfAngle)) return 0;
+      if (this.flameRayLength(player.x, player.y, Math.atan2(dy, dx), distance, covers, ignore) < distance - 0.01) return 0;
+      return 1 - 0.55 * distance / FLAME.range;
+    };
+    const hits: Array<{ target: TankRuntime | CoverRuntime; factor: number }> = [];
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      const factor = exposure(enemy.x, enemy.y);
+      if (factor > 0) hits.push({ target: enemy, factor });
+    }
+    for (const cover of covers) {
+      // A soldier firing out of their doorway must not chip their own shelter.
+      if (cover.kind === 'houseOpen' && this.projectileCanUseHouseOpening({ previousX: player.x, previousY: player.y,
+        vx: Math.cos(player.turretAngle), vy: Math.sin(player.turretAngle) }, cover)) continue;
+      const along = clamp((cover.x - player.x) * Math.cos(player.turretAngle) + (cover.y - player.y) * Math.sin(player.turretAngle), 0, FLAME.range);
+      const x = clamp(player.x + Math.cos(player.turretAngle) * along, cover.x - cover.width / 2, cover.x + cover.width / 2);
+      const y = clamp(player.y + Math.sin(player.turretAngle) * along, cover.y - cover.height / 2, cover.y + cover.height / 2);
+      const factor = exposure(x, y, cover);
+      if (factor > 0) hits.push({ target: cover, factor });
+    }
+    // Damage and visual rays use the same pre-destruction cover snapshot.
+    const rays: FlameRuntime['rays'] = [];
+    for (let i = 0; i < 9; i++) {
+      const angle = player.turretAngle + (i / 8 - 0.5) * FLAME.halfAngle * 2;
+      rays.push({ angle, length: this.flameRayLength(player.x, player.y, angle, FLAME.range, covers) });
+    }
+    this.flames.push({ x: player.x, y: player.y, age: 0, rays });
+    if (this.flames.length > 6) this.flames.shift();
+    for (const { target, factor } of hits) {
+      if ('alive' in target) {
+        if (!target.alive) continue;
+        this.damageTank(target, damage * factor, this.specialProjectile(player, damage * factor, 'flame', target.x, target.y), 0, true);
+      } else {
+        if (target.health <= 0) continue;
+        this.damageCover(target, damage * factor / 95 * 0.25, 'player');
+      }
+      const combustible = 'alive' in target || coverMaterial(target.kind) === 'wood' || coverMaterial(target.kind) === 'fuel';
+      if (target.health > 0 && combustible) {
+        const previous = this.burns.get(target);
+        this.burns.set(target, { remainingMs: FLAME.burnMs, accumulatedMs: previous?.accumulatedMs ?? 0,
+          dps: Math.max(previous?.dps ?? 0, damage / WEAPONS.flamer.damageScale * FLAME.burnScale * factor), sourceX: player.x, sourceY: player.y });
+      }
+    }
+    this.playSpatialSfx('flame', player.x, player.y, 0.65);
+  }
+
+  private updateBurns(delta: number): void {
+    for (const [target, burn] of this.burns) {
+      if (target.health <= 0 || ('alive' in target && !target.alive)) { this.burns.delete(target); continue; }
+      const elapsed = Math.min(delta, burn.remainingMs);
+      burn.remainingMs -= elapsed;
+      burn.accumulatedMs += elapsed;
+      if (burn.accumulatedMs >= FLAME.tickMs - 0.00001 || burn.remainingMs <= 0.00001) {
+        const damage = burn.dps * burn.accumulatedMs / 1000;
+        burn.accumulatedMs = 0;
+        if ('alive' in target && this.player) {
+          const source = { kind: this.player.kind, x: burn.sourceX, y: burn.sourceY };
+          this.damageTank(target, damage, this.specialProjectile(source, damage, 'flame', target.x, target.y), 0, true, true);
+        } else if (!('alive' in target)) this.damageCover(target, damage / 95 * 0.25, 'player');
+      }
+      if (burn.remainingMs <= 0.00001 || target.health <= 0) this.burns.delete(target);
+    }
+  }
+
+  private drawSpecialWeapons(g: Phaser.GameObjects.Graphics): void {
+    const full = this.effectsEnabled();
+    for (const beam of this.beams) {
+      const alpha = 1 - beam.age / PULSE_LASER.durationMs;
+      if (full) { g.lineStyle(12, 0x7cf6ff, 0.18 * alpha); g.lineBetween(beam.x, beam.y, beam.endX, beam.endY); }
+      g.lineStyle(4, 0x7cf6ff, 0.8 * alpha); g.lineBetween(beam.x, beam.y, beam.endX, beam.endY);
+      g.lineStyle(1.5, 0xf2ffff, alpha); g.lineBetween(beam.x, beam.y, beam.endX, beam.endY);
+    }
+    for (const flame of this.flames) {
+      if (!this.isVisible(flame.x, flame.y, FLAME.range)) continue;
+      const progress = flame.age / 320, alpha = 1 - progress;
+      for (let i = 0; i < flame.rays.length; i++) {
+        const ray = flame.rays[i];
+        if (ray.length < 5) continue;
+        const reach = ray.length * (0.75 + progress * 0.25);
+        const x = flame.x + Math.cos(ray.angle) * reach, y = flame.y + Math.sin(ray.angle) * reach;
+        if (i > 0) {
+          const before = flame.rays[i - 1];
+          g.fillStyle(0xff862b, 0.09 * alpha);
+          g.fillTriangle(flame.x, flame.y, x, y, flame.x + Math.cos(before.angle) * before.length * (0.75 + progress * 0.25), flame.y + Math.sin(before.angle) * before.length * (0.75 + progress * 0.25));
+        }
+        if (i === 0 || i === flame.rays.length - 1 || (!full && i % 2)) continue;
+        // Staggered moving tongues instead of rigid radial spokes. Their radius
+        // fits inside the same cover-clipped ray used for the cone silhouette.
+        const puffs = full ? 3 : 2;
+        for (let puff = 0; puff < puffs; puff++) {
+          const fraction = 0.2 + ((progress * 0.9 + puff / puffs + i * 0.13) % 1) * 0.78;
+          const distance = reach * fraction;
+          const size = Math.min(7 + Math.sin(fraction * Math.PI) * 8, (reach - distance) * 0.8);
+          if (size < 2) continue;
+          const px = flame.x + Math.cos(ray.angle) * distance, py = flame.y + Math.sin(ray.angle) * distance;
+          g.fillStyle(fraction < 0.48 ? 0xffc467 : 0xf37a2c, 0.52 * alpha);
+          g.fillCircle(px, py, size);
+          g.fillStyle(0xffe69b, 0.58 * alpha * (1 - fraction));
+          g.fillCircle(px - Math.cos(ray.angle) * size * 0.35, py - Math.sin(ray.angle) * size * 0.35, size * 0.48);
+        }
+      }
+    }
+    for (const [target] of this.burns) {
+      if (!this.isVisible(target.x, target.y, 40)) continue;
+      const flicker = 1 + Math.sin(this.missionElapsed / 65 + target.x) * 0.15;
+      g.fillStyle(0xff7a2f, 0.7); g.fillTriangle(target.x - 7, target.y - 5, target.x + 7, target.y - 5, target.x + 2, target.y - 24 * flicker);
+      g.fillStyle(0xffe097, 0.85); g.fillTriangle(target.x - 3, target.y - 5, target.x + 4, target.y - 5, target.x, target.y - 15 * flicker);
+    }
+  }
+
   private damageTank(
     target: TankRuntime,
     damage: number,
     projectile: ProjectileRuntime,
     blastRadius: number,
     fromArea = false,
+    statusTick = false,
   ): void {
     const incomingAngle = Math.atan2(-projectile.vy, -projectile.vx);
     const facing = Math.abs(angleDifference(target.bodyAngle, incomingAngle));
@@ -2361,7 +2615,7 @@ export class BattleScene extends Phaser.Scene {
     target.hitFlashColor = shieldHit ? 0x7cf6ff : projectile.color;
 
     const velocity = Math.hypot(projectile.vx, projectile.vy);
-    if (velocity > 0.001) {
+    if (velocity > 0.001 && !statusTick) {
       const shelterScale = shelter ? 0.25 : 1;
       const strengthScale = clamp(applied / Math.max(1, damage), 0.35, 1.5);
       const impulse = profile.hitImpulse * strengthScale * shelterScale;
@@ -2398,7 +2652,7 @@ export class BattleScene extends Phaser.Scene {
         : rearHit ? `REAR ${roundedApplied}`
           : frontHit ? `FRONT ${roundedApplied}`
             : `HIT ${roundedApplied}`;
-    this.addFloatingText(
+    if (!statusTick) this.addFloatingText(
       target.x,
       target.y - target.radius - 18,
       hitLabel,
@@ -2413,6 +2667,7 @@ export class BattleScene extends Phaser.Scene {
 
     if (target.health <= 0 && target.alive) {
       target.alive = false;
+      if (!isInfantry(target.kind)) this.surfaceEffects.impact(target.x, target.y, 'metal', true, target.radius, target.bodyAngle, true);
       this.createExplosion(target.x, target.y, target.radius * 2.6, target.team === 'player' ? 0xff5147 : 0xffb24a);
       if (target.team === 'enemy') {
         this.director.addScore(target.score);
@@ -2429,6 +2684,7 @@ export class BattleScene extends Phaser.Scene {
     sourceTeam: Team,
     ignoreTankId?: string,
     feedback: WeaponFeedbackStyle = 'cannon',
+    ignoreCoverId?: string,
   ): void {
     const targets = sourceTeam === 'player'
       ? this.enemies.filter((enemy) => enemy.alive)
@@ -2480,7 +2736,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     for (const cover of this.covers) {
-      if (cover.health <= 0 || cover.kind === 'repair' || cover.kind === 'armory' || cover.spent) {
+      if (cover.id === ignoreCoverId || cover.health <= 0 || cover.kind === 'repair' || cover.kind === 'armory' || cover.spent) {
         continue;
       }
 
@@ -2626,39 +2882,134 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private callArtilleryStrike(): void {
-    const target = this.getArtilleryTarget();
-    this.addFloatingText(target.x, target.y - 52, 'Artillery', 0xffd27a);
-    this.audio?.playSfx('artillery', 0.85);
-    const generation = this.missionGeneration;
-    for (let index = 0; index < 4; index += 1) {
-      this.time.delayedCall(index * 155, () => {
-        if (generation !== this.missionGeneration || this.snapshot?.phase !== 'playing') {
-          return;
-        }
-
-        const offsetAngle = index * Math.PI * 0.5 + 0.35;
-        const radius = index === 0 ? 0 : 58;
-        const x = clamp(target.x + Math.cos(offsetAngle) * radius, 60, this.mission?.worldWidth ?? target.x);
-        const y = clamp(target.y + Math.sin(offsetAngle) * radius, 60, this.mission?.worldHeight ?? target.y);
-        this.createExplosion(x, y, 152, 0xffc65f);
-        this.damageArea(x, y, 152, (this.snapshot?.tankStats.shellDamage ?? 95) * 1.35, 'player', undefined, 'mortar');
-      });
+  private isAirStrikeTargetAlive(target: AirStrikeTarget): boolean {
+    if (target.kind === 'enemy') {
+      return target.entity.alive && !target.entity.shelteredBy;
     }
+    const cover = target.entity;
+    return cover.health > 0 && !cover.spent && cover.solid
+      && cover.id !== this.player?.shelteredBy
+      && (cover.kind === 'crate' || cover.kind === 'concrete' || cover.kind === 'rockWall'
+        || cover.kind === 'houseOpen' || cover.kind === 'houseSealed');
   }
 
-  private getArtilleryTarget(): { x: number; y: number } {
-    const livingEnemies = this.enemies.filter((enemy) => enemy.alive);
-    if (livingEnemies.length > 0 && this.player) {
-      const closest = livingEnemies.reduce((best, enemy) => {
-        const bestDistance = Phaser.Math.Distance.Between(this.player?.x ?? 0, this.player?.y ?? 0, best.x, best.y);
-        const enemyDistance = Phaser.Math.Distance.Between(this.player?.x ?? 0, this.player?.y ?? 0, enemy.x, enemy.y);
-        return enemyDistance < bestDistance ? enemy : best;
-      }, livingEnemies[0]);
-      return { x: closest.x, y: closest.y };
+  private getAirStrikeTargets(origin: { x: number; y: number }): AirStrikeTarget[] {
+    const threats: AirStrikeTarget[] = [];
+    const structures: AirStrikeTarget[] = [];
+    const shelterIds = new Set<string>();
+    const distanceSquared = (target: AirStrikeTarget): number => (
+      (target.entity.x - origin.x) ** 2 + (target.entity.y - origin.y) ** 2
+    );
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
+      // Lock the protective building, not an invisible soldier behind its wall.
+      const shelter = enemy.shelteredBy ? this.covers.find(cover => cover.id === enemy.shelteredBy) : undefined;
+      const target: AirStrikeTarget = shelter ? { kind: 'cover', entity: shelter } : { kind: 'enemy', entity: enemy };
+      if (!this.isAirStrikeTargetAlive(target) || distanceSquared(target) > AIR_STRIKE.range ** 2) continue;
+      if (shelter) {
+        if (shelterIds.has(shelter.id)) continue;
+        shelterIds.add(shelter.id);
+      }
+      threats.push(target);
+    }
+    for (const cover of this.covers) {
+      const target: AirStrikeTarget = { kind: 'cover', entity: cover };
+      if (!shelterIds.has(cover.id) && this.isAirStrikeTargetAlive(target) && distanceSquared(target) <= AIR_STRIKE.range ** 2) {
+        structures.push(target);
+      }
+    }
+    const nearestFirst = (a: AirStrikeTarget, b: AirStrikeTarget): number => distanceSquared(a) - distanceSquared(b);
+    return [...threats.sort(nearestFirst), ...structures.sort(nearestFirst)];
+  }
+
+  private callAirStrike(): boolean {
+    const player = this.player;
+    const mission = this.mission;
+    if (!player?.alive || !mission || this.snapshot?.phase !== 'playing' || this.missionResolved) return false;
+    // Refresh shelter membership before acquiring targets in this frame.
+    this.updateHouseShelters();
+    const origin = { x: player.x, y: player.y };
+    const targets = this.getAirStrikeTargets(origin);
+    if (targets.length === 0) {
+      this.addFloatingText(player.x, player.y - 52, 'No strike targets nearby', AIR_STRIKE.color);
+      return false;
     }
 
-    return { ...this.lastPointerWorld };
+    this.addFloatingText(player.x, player.y - 52, `Air Strike · ${AIR_STRIKE.missiles} seekers`, AIR_STRIKE.color);
+    this.audio?.playSfx('artillery', 0.85);
+    for (let index = 0; index < AIR_STRIKE.missiles; index += 1) {
+      const target = targets[index % targets.length];
+      const spread = index - (AIR_STRIKE.missiles - 1) / 2;
+      // Arrive from above the player in a fan, independent of turret heading.
+      const x = clamp(origin.x + spread * 28, 20, mission.worldWidth - 20);
+      const y = clamp(origin.y - 240 - Math.abs(spread) * 12, 20, mission.worldHeight - 20);
+      const angle = Math.atan2(target.entity.y - y, target.entity.x - x) + spread * 0.12;
+      this.projectiles.push({
+        id: this.projectileSerial++, team: 'player', kind: 'rocket', sourceKind: player.kind,
+        x, y, previousX: x, previousY: y,
+        vx: Math.cos(angle) * AIR_STRIKE.speed, vy: Math.sin(angle) * AIR_STRIKE.speed,
+        damage: this.snapshot.tankStats.shellDamage * AIR_STRIKE.damageScale,
+        blastRadius: AIR_STRIKE.blastRadius, radius: 9, ttl: AIR_STRIKE.ttlMs,
+        color: AIR_STRIKE.color, pierceRemaining: 0, homingStrength: AIR_STRIKE.turnRate,
+        arcing: false, targetX: target.entity.x, targetY: target.entity.y,
+        hitTankIds: [], feedback: 'rocket', airStrike: { origin, target },
+      });
+    }
+    return true;
+  }
+
+  private updateAirStrikeMissile(projectile: ProjectileRuntime, dt: number): void {
+    const strike = projectile.airStrike!;
+    projectile.ttl -= dt * 1000;
+    if (projectile.ttl <= 0) return;
+    if (!this.isAirStrikeTargetAlive(strike.target)) {
+      // Reacquire only on lock loss, favoring targets with fewer inbound missiles.
+      const candidates = this.getAirStrikeTargets(strike.origin);
+      let best: AirStrikeTarget | undefined;
+      let fewestLocks = Infinity;
+      for (const target of candidates) {
+        let locks = 0;
+        for (const shot of this.projectiles) {
+          if (shot !== projectile && shot.ttl > 0 && shot.airStrike?.target.entity === target.entity) locks += 1;
+        }
+        if (locks < fewestLocks) { best = target; fewestLocks = locks; }
+      }
+      if (!best) { projectile.ttl = 0; return; }
+      strike.target = best;
+    }
+
+    const target = strike.target;
+    const desired = Math.atan2(target.entity.y - projectile.y, target.entity.x - projectile.x);
+    // Slow the final approach to prevent orbiting small, moving infantry targets.
+    const distance = Math.hypot(target.entity.x - projectile.x, target.entity.y - projectile.y);
+    const speed = Math.min(AIR_STRIKE.speed, Math.max(120, distance * 4));
+    const angle = approachAngle(Math.atan2(projectile.vy, projectile.vx), desired, AIR_STRIKE.turnRate * dt);
+    projectile.previousX = projectile.x;
+    projectile.previousY = projectile.y;
+    projectile.vx = Math.cos(angle) * speed;
+    projectile.vy = Math.sin(angle) * speed;
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+
+    // Airborne seekers ignore intervening cover and detonate only on their lock.
+    const hitTime = target.kind === 'enemy'
+      ? segmentPointHitTime(projectile.previousX, projectile.previousY, projectile.x, projectile.y,
+          target.entity.x, target.entity.y, target.entity.radius + projectile.radius)
+      : segmentRectHitTime(projectile, target.entity);
+    if (hitTime === null) return;
+    projectile.x = Phaser.Math.Linear(projectile.previousX, projectile.x, hitTime);
+    projectile.y = Phaser.Math.Linear(projectile.previousY, projectile.y, hitTime);
+    projectile.ttl = 0;
+    if (target.kind === 'enemy') {
+      this.damageTank(target.entity, projectile.damage, projectile, projectile.blastRadius);
+    } else {
+      this.createImpactEffect(projectile.x, projectile.y, projectile, false, false);
+      this.createExplosion(projectile.x, projectile.y, projectile.blastRadius, projectile.color);
+      this.damageArea(projectile.x, projectile.y, projectile.blastRadius, projectile.damage * 0.42,
+        'player', undefined, 'rocket', target.entity.id);
+      // One missile is one direct structural hit, without double-counting splash.
+      this.damageCover(target.entity, 1, 'player');
+    }
   }
 
   private resolveTankCoverCollision(tank: TankRuntime): void {
@@ -2880,16 +3231,20 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    if (this.staticLayerDirty) {
+    if (this.terrainLayerDirty) {
       terrainGraphics.clear();
-      coverGraphics.clear();
       this.drawTerrain(terrainGraphics, mission);
+      this.terrainLayerDirty = false;
+    }
+    if (this.staticLayerDirty) {
+      coverGraphics.clear();
       this.drawCovers(coverGraphics, false);
       this.staticLayerDirty = false;
     }
 
     this.blenderSprites?.beginFrame();
     underlayGraphics.clear();
+    this.surfaceEffects.drawGround(underlayGraphics, this.effectVisible);
     this.drawExitLane(underlayGraphics, mission);
     this.drawCaptureZones(underlayGraphics);
     this.drawEscort(underlayGraphics);
@@ -2904,6 +3259,8 @@ export class BattleScene extends Phaser.Scene {
     this.drawProjectiles(graphics);
     this.drawImpactEffects(graphics);
     this.drawExplosions(graphics);
+    this.surfaceEffects.draw(graphics, this.effectVisible);
+    this.drawSpecialWeapons(graphics);
   }
 
   private isVisible(x: number, y: number, padding: number): boolean {
@@ -2915,29 +3272,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawTerrain(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
-    // Terrain is world-space and immutable during a mission. Drawing the whole
-    // map once lets Phaser reuse the geometry while the camera moves.
-    const left = 0;
-    const top = 0;
-    const right = mission.worldWidth;
-    const bottom = mission.worldHeight;
-    graphics.fillStyle(mission.palette.ground, 1);
-    graphics.fillRect(left, top, right - left, bottom - top);
-    graphics.fillStyle(mission.palette.shadow, 0.28);
-    for (let x = Math.floor(left / 180) * 180; x <= right; x += 180) {
-      graphics.fillRect(x, top, 2, bottom - top);
-    }
-    for (let y = Math.floor(top / 180) * 180; y <= bottom; y += 180) {
-      graphics.fillRect(left, y, right - left, 2);
-    }
-    if (mission.palette.water) {
-      const waterTop = mission.worldHeight * 0.72;
-      if (waterTop + 90 >= top && waterTop <= bottom) {
-        graphics.fillStyle(mission.palette.water, 0.58);
-        graphics.fillRect(left, waterTop, right - left, 90);
-      }
-    }
-
+    this.groundRenderer?.draw(graphics, mission);
   }
 
   private drawExitLane(graphics: Phaser.GameObjects.Graphics, mission: MissionConfig): void {
@@ -3467,12 +3802,18 @@ export class BattleScene extends Phaser.Scene {
       if (!this.isVisible(projectile.x, projectile.y, Math.max(220, projectile.blastRadius))) {
         continue;
       }
-      if (projectile.kind === 'gas') {
+      if (projectile.airStrike) {
+        this.drawRocketProjectile(graphics, projectile);
+      } else if (projectile.kind === 'gas') {
         this.drawMortarShell(graphics, projectile);
       } else if (projectile.kind === 'drone') {
         this.drawSuicideDrone(graphics, projectile);
-      } else if (projectile.sourceKind === 'rifleman') {
+      } else if (projectileAppearance(projectile.kind, projectile.feedback) === 'bullet') {
         this.drawBullet(graphics, projectile);
+      } else if (projectile.kind === 'pellet') {
+        this.drawTrail(graphics, projectile, Math.atan2(projectile.vy, projectile.vx), 12, 2);
+        graphics.fillStyle(projectile.color, 0.95);
+        graphics.fillCircle(projectile.x, projectile.y, 2.8);
       } else if (projectile.kind === 'mortar') {
         this.drawMortarShell(graphics, projectile);
       } else if (projectile.kind === 'rail') {
@@ -3916,7 +4257,7 @@ export class BattleScene extends Phaser.Scene {
     const droneRack = weapon?.id === 'drone';
     const indirect = weapon?.id === 'mortar' || weapon?.id === 'gasBomb';
     const longGun = weapon?.id === 'railgun' || weapon?.id === 'laser' || weapon?.id === 'sniper';
-    const length = art.barrelLength * r * (rapidFire ? 0.82 : indirect ? 0.58 : longGun ? 1.28 : 1);
+    const length = weapon?.id === 'machineGun' ? r + 20 : art.barrelLength * r * (rapidFire ? 0.82 : indirect ? 0.58 : longGun ? 1.28 : 1);
 
     const weaponKind = rapidFire ? 'rapid' : droneRack ? 'drone' : launcher ? 'launcher'
       : indirect ? 'mortar' : longGun ? 'rail' : 'cannon';
@@ -3925,21 +4266,24 @@ export class BattleScene extends Phaser.Scene {
     const spriteStart = droneRack ? r * -.34 : innerStart;
     const spriteLength = droneRack ? r * .92 : length - innerStart;
     const lateral = droneRack ? r * .48 : rapidFire ? r * .13 : 0;
-    const first = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, -lateral);
+    const level = this.snapshot?.weaponLevels.machineGun ?? 1;
+    const barrelCount = weapon?.id === 'machineGun' ? machineGunBarrels(level) : lateral ? 2 : 1;
+    const offsetForBarrel = (index: number): number => weapon?.id === 'machineGun' ? machineGunOffset(index, level) : (index === 0 ? -lateral : lateral);
+    const first = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, offsetForBarrel(0));
     if (this.blenderSprites?.drawWeapon(`${tank.id}-gun`, weaponKind, first.x, first.y,
       tank.turretAngle, spriteLength, spriteWidth)) {
-      if (lateral) {
-        const second = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, lateral);
-        this.blenderSprites.drawWeapon(`${tank.id}-gun-2`, weaponKind, second.x, second.y,
+      for (let index = 1; index < barrelCount; index++) {
+        const second = localToWorld(tank.x, tank.y, tank.turretAngle, spriteStart, offsetForBarrel(index));
+        this.blenderSprites.drawWeapon(`${tank.id}-gun-${index + 1}`, weaponKind, second.x, second.y,
           tank.turretAngle, spriteLength, spriteWidth);
       }
       return;
     }
 
     if (rapidFire) {
-      for (const side of [-1, 1]) {
-        const start = localToWorld(tank.x, tank.y, tank.turretAngle, innerStart, side * r * 0.13);
-        const tip = localToWorld(tank.x, tank.y, tank.turretAngle, length, side * r * 0.13);
+      for (let index = 0; index < barrelCount; index++) {
+        const start = localToWorld(tank.x, tank.y, tank.turretAngle, innerStart, offsetForBarrel(index));
+        const tip = localToWorld(tank.x, tank.y, tank.turretAngle, length, offsetForBarrel(index));
         graphics.lineStyle(5, 0x0d0f0d, 1);
         graphics.lineBetween(start.x, start.y, tip.x, tip.y);
         graphics.lineStyle(2.5, 0x626b61, 1);

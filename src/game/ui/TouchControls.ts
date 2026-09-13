@@ -66,7 +66,7 @@ export class TouchControlsOverlay {
               <span class="key-hint">X</span>
               <span class="action-caption" data-swap-detail></span>
             </button>
-            <button type="button" class="touch-button touch-button-mini touch-button-special" data-action="special" aria-label="Artillery strike">
+            <button type="button" class="touch-button touch-button-mini touch-button-special" data-action="special" aria-label="Air Strike: six guided missiles">
               ${ICONS.strike}
               <span class="touch-action-label">Strike</span>
               <span class="key-hint">Q</span>

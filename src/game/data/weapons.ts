@@ -1,6 +1,6 @@
 import type { WeaponId } from '../types';
 
-export type WeaponProjectileStyle = 'rocket' | 'shell' | 'mortar' | 'rail' | 'gas' | 'drone';
+export type WeaponProjectileStyle = 'rocket' | 'shell' | 'bullet' | 'pellet' | 'mortar' | 'rail' | 'gas' | 'drone';
 export type WeaponFeedbackStyle =
   | 'smallArm'
   | 'automatic'
@@ -128,7 +128,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     label: 'Scattergun',
     description: 'Short-range pellet spread that shreds anything hugging your hull.',
     unlockAtMissionIndex: 13,
-    style: 'shell',
+    style: 'pellet',
     feedback: 'cannon',
     color: 0xffb15f,
     cooldownScale: 0.75,
@@ -191,7 +191,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     label: 'Rifle',
     description: 'Standard service rifle. Quick, accurate, light on damage.',
     unlockAtMissionIndex: 0,
-    style: 'shell',
+    style: 'bullet',
     feedback: 'smallArm',
     color: 0xffe9a8,
     cooldownScale: 0.34,
@@ -211,7 +211,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
     label: 'Shotgun',
     description: 'Five-pellet blast. Devastating up close, useless at range.',
     unlockAtMissionIndex: 99,
-    style: 'shell',
+    style: 'pellet',
     feedback: 'cannon',
     color: 0xffc27a,
     cooldownScale: 0.7,
@@ -229,9 +229,9 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   machineGun: {
     id: 'machineGun',
     label: 'Machine Gun',
-    description: 'Eight small rounds fire in one rapid burst. The Mini Tank carries this as its basic gun.',
+    description: 'Eight tracers alternate between twin barrels; level 3 adds quad barrels. Mini Tank starter.',
     unlockAtMissionIndex: 99,
-    style: 'shell',
+    style: 'bullet',
     feedback: 'automatic',
     color: 0xfff0b0,
     cooldownScale: 0.46,
@@ -269,16 +269,16 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   flamer: {
     id: 'flamer',
     label: 'Flamer',
-    description: 'Short cone of burning fuel. Shreds anything that closes in.',
+    description: '70° flame cone, blocked by cover. Leaves a two-second burn; repeated hits refresh it.',
     unlockAtMissionIndex: 99,
     style: 'shell',
     feedback: 'flame',
     color: 0xff8a3c,
     cooldownScale: 0.3,
-    shots: 4,
+    shots: 1,
     spread: 0.55,
     burstDelayMs: 0,
-    damageScale: 0.22,
+    damageScale: 0.65,
     speedScale: 0.6,
     blastRadius: 14,
     ttlMs: 260,
@@ -289,7 +289,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
   laser: {
     id: 'laser',
     label: 'Laser',
-    description: 'Continuous beam that burns straight through anything in line.',
+    description: 'Instant pulse beam. Pierces enemies and one concrete slab; other cover or a second slab stops it.',
     unlockAtMissionIndex: 99,
     style: 'rail',
     feedback: 'energy',
