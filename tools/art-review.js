@@ -26,7 +26,8 @@ const mission = {
     doorSide: 'right', garrison: [],
   })),
 };
-const director = new GameDirector([mission, STAGES[1]]);
+const campaignReview = new URLSearchParams(location.search).has('campaign');
+const director = new GameDirector(campaignReview ? STAGES : [mission, STAGES[1]]);
 const gamepad = new VirtualGamepad();
 const ui = new InterfaceController({
   hudRoot: document.querySelector('#hud-root'), overlayRoot: document.querySelector('#overlay-root'),

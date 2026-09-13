@@ -26,6 +26,9 @@ import type {
 } from '../types';
 
 type Listener = (snapshot: SessionSnapshot) => void;
+type StatUpgrade =
+  | { kind: 'shop'; id: Exclude<ShopItemId, 'chassis'> }
+  | { kind: 'reward'; id: UpgradeId };
 
 const DEFAULT_PLAYER_CLASS: PlayerClassId = TEST_MODE ? 'medium' : 'rifleman';
 
@@ -114,6 +117,7 @@ export class GameDirector {
   private selectedWeapon: WeaponId = PLAYER_CLASSES[DEFAULT_PLAYER_CLASS].startingWeapon;
   private credits = 0;
   private statLevels: Partial<Record<ShopItemId, number>> = {};
+  private statUpgradeHistory: StatUpgrade[] = [];
   private boughtWeapons: WeaponId[] = [];
   private weaponLevels: Partial<Record<WeaponId, number>> = {};
   private missionBonus: MissionBonusBreakdown | undefined;
@@ -291,6 +295,7 @@ export class GameDirector {
       const spec = SHOP_STATS[id as Exclude<ShopItemId, 'chassis'>];
       spec.apply(this.tankStats);
       this.statLevels[spec.id] = (this.statLevels[spec.id] ?? 0) + 1;
+      this.statUpgradeHistory.push({ kind: 'shop', id: id as Exclude<ShopItemId, 'chassis'> });
     }
 
     this.emit();
@@ -299,7 +304,8 @@ export class GameDirector {
 
   /**
    * Moving to a heavier chassis rebases the stats on the new hull, then replays
-   * every upgrade already bought so purchases are never lost in the swap.
+   * every bought or earned upgrade in order, including stage rewards. Order
+   * matters when flat damage bonuses mix with percentage upgrades or caps.
    */
   private switchChassis(next: PlayerClassId): void {
     const previousStartingWeapon = PLAYER_CLASSES[this.playerClass].startingWeapon;
@@ -309,10 +315,11 @@ export class GameDirector {
 
     this.playerClass = next;
     this.tankStats = applyDifficulty(cloneClassStats(next), this.difficulty);
-    for (const [id, level] of Object.entries(this.statLevels)) {
-      const spec = SHOP_STATS[id as Exclude<ShopItemId, 'chassis'>];
-      for (let i = 0; i < (level ?? 0); i += 1) {
-        spec.apply(this.tankStats);
+    for (const upgrade of this.statUpgradeHistory) {
+      if (upgrade.kind === 'shop') {
+        SHOP_STATS[upgrade.id].apply(this.tankStats);
+      } else {
+        this.applyRewardStats(upgrade.id);
       }
     }
 
@@ -372,6 +379,7 @@ export class GameDirector {
     this.scrap = 0;
     this.credits = 0;
     this.statLevels = {};
+    this.statUpgradeHistory = [];
     this.boughtWeapons = [];
     this.weaponLevels = { [PLAYER_CLASSES[playerClass].startingWeapon]: 1 };
     this.failureReason = undefined;
@@ -488,10 +496,16 @@ export class GameDirector {
   }
 
   applyUpgrade(id: UpgradeId): void {
-    if (!this.pendingUpgrades.some((upgrade) => upgrade.id === id)) {
+    if (this.phase !== 'intermission' || !this.pendingUpgrades.some((upgrade) => upgrade.id === id)) {
       return;
     }
 
+    this.applyRewardStats(id);
+    this.statUpgradeHistory.push({ kind: 'reward', id });
+    this.advanceToNextMission();
+  }
+
+  private applyRewardStats(id: UpgradeId): void {
     if (id === 'armor') {
       this.tankStats.maxHealth += 110;
       this.tankStats.armor += 0.12;
@@ -499,18 +513,17 @@ export class GameDirector {
       this.tankStats.engine += 32;
       this.tankStats.turnRate += 0.4;
     } else if (id === 'reload') {
-      this.tankStats.reloadMs = Math.max(460, this.tankStats.reloadMs * 0.84);
+      // A legacy reward floor must never slow an already faster weapon.
+      this.tankStats.reloadMs = Math.min(this.tankStats.reloadMs, Math.max(460, this.tankStats.reloadMs * 0.84));
     } else if (id === 'shells') {
       this.tankStats.shellDamage += 22;
       this.tankStats.shellSpeed += 35;
     } else if (id === 'special') {
-      this.tankStats.specialCooldownMs = Math.max(7600, this.tankStats.specialCooldownMs * 0.78);
+      this.tankStats.specialCooldownMs = Math.min(this.tankStats.specialCooldownMs, Math.max(7600, this.tankStats.specialCooldownMs * 0.78));
     } else if (id === 'repair') {
       this.tankStats.repairCharges += 1;
       this.tankStats.maxHealth += 45;
     }
-
-    this.advanceToNextMission();
   }
 
   failMission(reason = 'Mission failed'): void {

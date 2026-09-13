@@ -883,3 +883,80 @@ repository so future asset builds do not depend on that checkout.
   the existing GitHub Pages workflow. Release smoke checks now compare the
   loaded JavaScript/CSS bundle hashes as well as the unchanged Blender atlas,
   so the previous deployment cannot pass as this artwork/control release.
+
+---
+
+## Request 21: Slower stock tanks and three-times infantry (2026-09-13)
+
+### Scope and implementation
+
+- Halved player tank base engine speeds: Mini Tank 286 -> 143, Small Tank
+  268 -> 134, Medium Tank 235 -> 117.5, Heavy Tank 178 -> 89. The on-foot
+  Soldier stays at 300; enemy armor, projectile speeds and escort speed are
+  unchanged. Turn rates and input response were not reduced.
+- Engine purchases still add the full +26 speed per level (five levels), and
+  the existing Hot Engine stage reward still adds +32. This changes class
+  baselines rather than scaling movement each frame, so upgrades remain
+  effective and their shop descriptions remain accurate.
+- Added `infantrySquads.ts`: each authored rifleman/rocketeer becomes a
+  three-person squad at campaign initialization. Troops use deterministic
+  nearby positions, with clearance from all covers, other units, map edges,
+  and the player's deployment region. The bounded search runs once, not per
+  frame or retry. Authored input data is not mutated.
+- Tripled sealed-house garrisons too. Existing battlefield counts for missions
+  1-5 are now 18, 15, 21, 15 and 15, with hidden troops 3, 3, 6, 0 and 0.
+  Total infantry is 96 instead of 32. Missions 6-15 have no authored infantry
+  and remain armor-only; no enemy tanks, bosses or mission objectives were
+  multiplied or otherwise redesigned.
+- Adjusted the infantry crushing/dodge speed threshold from 90 to 45,
+  preserving that mechanic with the halved stock speeds. In particular,
+  the Heavy Tank's new speed of 89 must not make crushing unreachable.
+
+### Review and verification
+
+- Added `tools/verify-balance.mjs` and an optional `?campaign` mode in the
+  existing development-only art/control fixture.
+- Verified exact stock speeds, actual engine purchases, retry preservation,
+  and engine bonuses after buying each available next chassis through its
+  normal progression unlock. The Heavy Tank has no next chassis.
+- Validated all 15 stage configurations: exact infantry/garrison counts,
+  unique IDs, no infantry starting inside cover, unit separation, safe bounds,
+  deterministic layout and unchanged source data.
+- Real scene checks cover all three garrison releases (no blocked positions,
+  correct counts, no duplicate release), stock Heavy Tank crushing and retry
+  population staying at 18 rather than tripling again.
+- Follow-up code/logic review found and fixed track-crushing applying to the
+  on-foot player and to sheltered enemies through house walls. Crushing and
+  tank-avoidance now require a vehicle; living house shelter blocks crushing.
+  Regression checks include a running Soldier, an actual house-edge shelter,
+  a tank below the speed threshold, and a stock Heavy Tank above it.
+- Fixed the legacy stage-reward path losing earned bonuses on a chassis swap.
+  Shop purchases and stage rewards now share an ordered replay ledger, so
+  additive/percentage modifiers and cooldown floors retain their original
+  order. The ledger survives retries and resets on a new campaign. The current
+  shop UI remains unchanged; this also preserves the older `applyUpgrade` API.
+- Legacy rewards now require an intermission, preventing repeated reward calls
+  from skipping missions. Their cooldown floors can no longer make an already
+  faster weapon slower. Tests cover mixed rewards/purchases in all four
+  difficulties, a chassis swap, retry, and new-campaign reset. All five engine
+  levels add +130 total; a sixth purchase fails without charging credits.
+- A 600-update sample of the largest infantry encounter (27 troops including
+  the released garrison) stayed finite, with 14 peak projectiles and no render
+  object growth across another 300 redraws. Measured CPU update/render-command
+  p95 was about 0.5 ms on this desktop host. This excludes GPU presentation
+  and is not a physical-phone FPS guarantee.
+- Production build, art regression tests, seven-layout control/input tests
+  and production desktop/mobile smoke tests passed with no page errors.
+- The September 13 follow-up authorizes committing and pushing this reviewed
+  change over Git SSH, then deploying through the existing GitHub Pages
+  workflow. Release verification compares live JS/CSS and atlas hashes against
+  the local production build and checks desktop/mobile start, pause and resume.
+- Re-run commands: `npm run build`, then `node tools/verify-balance.mjs`,
+  `node tools/verify-blender.mjs`, `node tools/verify-controls.mjs` (these three
+  use the Vite review fixture on port 5182), and `node tools/verify-release.mjs`
+  (starts a local production server). Each script accepts a Playwright package
+  directory argument if Playwright is not installed in this repository. For
+  live checks, set `ART_RELEASE_URL=https://buicongnguyen.github.io/Tank_game/`
+  before running the release script.
+- Physical-device difficulty, battery use and sustained frame pacing remain
+  playtest follow-ups; automated desktop emulation is not a phone benchmark.

@@ -18,6 +18,8 @@ export interface PlayerClassSpec {
 /** Disable this for campaign release so every new run begins as a Soldier. */
 export const TEST_MODE = true;
 
+// Tank engine baselines are half their original values; upgrades add their
+// full speed bonus to these stats. The on-foot Soldier remains unchanged.
 export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
   rifleman: {
     id: 'rifleman',
@@ -58,7 +60,7 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
       shieldMax: 75,
       shieldRegen: 8,
       armor: 0.9,
-      engine: 286,
+      engine: 143,
       turnRate: 7.4,
       reloadMs: 520,
       shellDamage: 38,
@@ -83,7 +85,7 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
       shieldMax: 60,
       shieldRegen: 6,
       armor: 0.92,
-      engine: 268,
+      engine: 134,
       turnRate: 6.8,
       reloadMs: 720,
       shellDamage: 74,
@@ -108,7 +110,7 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
       shieldMax: 80,
       shieldRegen: 7,
       armor: 1,
-      engine: 235,
+      engine: 117.5,
       turnRate: 5.8,
       reloadMs: 880,
       shellDamage: 95,
@@ -133,7 +135,7 @@ export const PLAYER_CLASSES: Record<PlayerClassId, PlayerClassSpec> = {
       shieldMax: 110,
       shieldRegen: 8,
       armor: 1.28,
-      engine: 178,
+      engine: 89,
       turnRate: 4.4,
       reloadMs: 1180,
       shellDamage: 138,

@@ -389,8 +389,8 @@ const UNIT_BOX_POINTS: ReadonlyArray<RenderPoint> = [
 const WORLD_POINT_POOL: RenderPoint[] = Array.from({ length: 32 }, () => ({ x: 0, y: 0 }));
 let worldPointPoolIndex = 0;
 
-/** Hull speed a tank needs before it can run infantry down. */
-const INFANTRY_CRUSH_SPEED = 90;
+/** Keep track-crushing reachable with the halved stock tank speeds. */
+const INFANTRY_CRUSH_SPEED = 45;
 /** Range at which infantry start sidestepping an oncoming tank. */
 const INFANTRY_DODGE_RANGE = 180;
 
@@ -1178,7 +1178,7 @@ export class BattleScene extends Phaser.Scene {
 
         // Infantry dive aside when a tank bears down on them, so crushing takes
         // a deliberate line rather than just driving forward.
-        if (isInfantry(enemy.kind) && distanceToPlayer < INFANTRY_DODGE_RANGE) {
+        if (!isInfantry(player.kind) && isInfantry(enemy.kind) && distanceToPlayer < INFANTRY_DODGE_RANGE) {
           const closing = player.vx * (enemy.x - player.x) + player.vy * (enemy.y - player.y);
           if (closing > 0 && Math.hypot(player.vx, player.vy) > INFANTRY_CRUSH_SPEED * 0.6) {
             const away = angleToPlayer + Math.PI;
@@ -1898,7 +1898,7 @@ export class BattleScene extends Phaser.Scene {
    * a whole squad down is a commitment rather than a free win.
    */
   private updateInfantryCrush(player: TankRuntime): void {
-    if (!player.alive) {
+    if (!player.alive || isInfantry(player.kind)) {
       return;
     }
 
@@ -1908,7 +1908,7 @@ export class BattleScene extends Phaser.Scene {
     }
 
     for (const enemy of this.enemies) {
-      if (!enemy.alive || !isInfantry(enemy.kind)) {
+      if (!enemy.alive || !isInfantry(enemy.kind) || enemy.shelteredBy) {
         continue;
       }
 

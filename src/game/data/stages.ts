@@ -1,4 +1,5 @@
 import type { CoverConfig, HouseDoorSide, InfantryKind, MissionConfig } from '../types';
+import { withInfantrySquads } from './infantrySquads';
 
 function commonCovers(offset = 0): MissionConfig['covers'] {
   return [
@@ -70,7 +71,7 @@ function clusters(...groups: CoverConfig[][]): CoverConfig[] {
   return groups.flat();
 }
 
-export const STAGES: MissionConfig[] = [
+const AUTHORED_STAGES: MissionConfig[] = [
   {
     id: 'training-ground',
     name: 'Mission 1',
@@ -746,3 +747,5 @@ export const STAGES: MissionConfig[] = [
     },
   },
 ];
+
+export const STAGES: MissionConfig[] = AUTHORED_STAGES.map(withInfantrySquads);
